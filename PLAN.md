@@ -334,10 +334,11 @@ Setup checklist for you (one-time):
 
 ---
 
-## 10. Implementation milestones
+## 10. Implementation milestones (all complete ✅)
 
 1. **M1 — Skeleton**: repo layout, config loader, logging, `.env.example`, Dockerfile + docker-compose.
 2. **M2 — Panel client**: auth w/ auto-refresh, `list_groups`, `create_user`, `get_user`, typed models; unit tests with mocked httpx.
 3. **M3 — Channel promo scheduler**: periodic post task (interval from config/DB), replace-old → send → silent-pin, message-id persistence, restart re-sync, default Persian text in `texts/promo_fa.txt`.
 4. **M4 — Trial flow**: /start (deep-link payload) handling with Persian greeting, multi-select keyboard from the curated offer list (DB + validation against `GET /api/groups/simple`, cached 5 min), confirm step, on-hold user creation, deliver subscription URL, SQLite grant record, one-per-user rule + re-grant cooldown; seed `data/offer_groups.json`.
 5. **M5 — Admin & polish**: owner commands — promo (`/setpromo`, `/setinterval`, `/promonow`, `/getpromo`), offer groups (`/groups`, `/offergroups`, `/setoffer`, `/deloffer`, `/reorder`, `/clearoffers`), grants (`/reset`, `/stats`); join/leave tracking via `chat_member`; error handling; README with setup guide (BotFather steps, channel-admin checklist, panel role checklist).
+6. **Hardening** (post-M5): HTML-escaping of user names, per-user rate-limit middleware, real-HTTP integration tests (local mock panel), `python -m bot.smoke` pre-flight checker, ready-made CI workflow (`docs/github-ci.yml` — copy into `.github/workflows/` with a `workflows`-scoped token to enable).

@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     default_lang: str = "fa"
     db_path: Path = Path("data/bot.db")
     log_level: str = "INFO"
+    rate_limit_per_minute: int = 30  # per-user flood protection
 
     @field_validator("owner_tg_ids", mode="before")
     @classmethod

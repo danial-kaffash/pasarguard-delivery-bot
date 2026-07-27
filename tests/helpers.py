@@ -59,6 +59,30 @@ class FakePanel:
             return effect
         return make_panel_user(user.username)
 
+    async def get_user(self, username: str):
+        return make_panel_user(username)
+
+
+class FakeState:
+    """Minimal FSMContext stand-in."""
+
+    def __init__(self):
+        self.state = None
+        self.data: dict = {}
+
+    async def set_state(self, state):
+        self.state = state
+
+    async def update_data(self, **kwargs):
+        self.data.update(kwargs)
+
+    async def get_data(self):
+        return self.data
+
+    async def clear(self):
+        self.state = None
+        self.data = {}
+
 
 class FakeBot:
     def __init__(self, username: str = "TestBot"):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from html import escape as html_escape
 
 import aiosqlite
 from aiogram import Bot, F, Router
@@ -38,7 +39,8 @@ class TrialForm(StatesGroup):
 
 def _display_name(message_or_user) -> str:
     user = getattr(message_or_user, "from_user", message_or_user)
-    return user.first_name or "دوست عزیز"
+    # Names are user-controlled input — escape before placing into HTML text.
+    return html_escape(user.first_name or "دوست عزیز")
 
 
 def _labels_for(ids: list[int], offers: list[store.OfferGroup]) -> str:
@@ -151,7 +153,9 @@ async def confirm_selection(
     grant = await store.get_latest_grant(db, user.id)
     if not trial_service.check_eligibility(grant, settings).eligible:
         await state.clear()
-        await callback.message.edit_text(texts.ALREADY_GRANTED_NO_URL.format(user.first_name or ""))
+        await callback.message.edit_text(
+            texts.ALREADY_GRANTED_NO_URL.format(name=html_escape(user.first_name or ""))
+        )
         await callback.answer()
         return
 

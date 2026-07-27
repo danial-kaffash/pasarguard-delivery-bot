@@ -23,6 +23,7 @@ from .handlers.admin import router as admin_router
 from .handlers.member_events import router as member_events_router
 from .handlers.trial import router as trial_router
 from .logging_setup import setup_logging
+from .middlewares import RateLimitMiddleware
 from .promo import run_scheduler
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,10 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
     dp.include_router(admin_router)
     dp.include_router(trial_router)
     dp.include_router(member_events_router)
+
+    limiter = RateLimitMiddleware(settings.rate_limit_per_minute)
+    dp.message.middleware(limiter)
+    dp.callback_query.middleware(limiter)
 
     async def on_startup() -> None:
         db = await store.connect(settings.db_path)

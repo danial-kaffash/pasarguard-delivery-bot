@@ -74,8 +74,21 @@ data/           # runtime data (SQLite DB — git-ignored; offer_groups.json see
 
 ```bash
 cp .env.example .env          # fill in real values
+
+# Recommended first: verify panel connectivity, credentials, and your
+# offer groups — before the bot ever starts:
+python -m bot.smoke
+
 docker compose up -d --build  # VPS long-polling — no public HTTPS needed
 ```
+
+`bot.smoke` checks: panel reachable (with a self-signed-cert hint if not) →
+login OK → lists panel groups → flags offer groups whose ids no longer exist.
+
+A ready-made GitHub Actions workflow lives in `docs/github-ci.yml` (ruff +
+format check + full pytest). To enable it, copy it to
+`.github/workflows/ci.yml` and push with a token that has the `workflows`
+permission — see the comment at the top of that file.
 
 Development:
 
