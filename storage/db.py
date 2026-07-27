@@ -41,6 +41,19 @@ CREATE TABLE IF NOT EXISTS offer_groups (
     sort_order INTEGER NOT NULL,
     updated_at TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS trial_grants (
+    tg_user_id     INTEGER PRIMARY KEY,
+    tg_username    TEXT,
+    panel_username TEXT NOT NULL,
+    panel_user_id  INTEGER,
+    group_ids      TEXT,              -- JSON list of panel group ids
+    data_limit     INTEGER,
+    expire_at      TEXT,
+    created_at     TEXT NOT NULL,
+    source_chat_id INTEGER,
+    revoked        INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -194,3 +207,91 @@ async def seed_offer_groups_from_file(db: aiosqlite.Connection, path: Path | str
         count += 1
     await db.commit()
     return count
+
+
+# ── trial grants ────────────────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class TrialGrant:
+    tg_user_id: int
+    panel_username: str
+    created_at: datetime
+    tg_username: str | None = None
+    panel_user_id: int | None = None
+    group_ids: list[int] | None = None
+    data_limit: int | None = None
+    expire_at: datetime | None = None
+    source_chat_id: int | None = None
+    revoked: bool = False
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
+
+
+async def get_latest_grant(db: aiosqlite.Connection, tg_user_id: int) -> TrialGrant | None:
+    """The single grant row for a user (one trial per Telegram user)."""
+    rows = await db.execute_fetchall(
+        "SELECT * FROM trial_grants WHERE tg_user_id = ?", (tg_user_id,)
+    )
+    if not rows:
+        return None
+    r = rows[0]
+    return TrialGrant(
+        tg_user_id=r["tg_user_id"],
+        tg_username=r["tg_username"],
+        panel_username=r["panel_username"],
+        panel_user_id=r["panel_user_id"],
+        group_ids=json.loads(r["group_ids"]) if r["group_ids"] else None,
+        data_limit=r["data_limit"],
+        expire_at=_parse_dt(r["expire_at"]),
+        created_at=datetime.fromisoformat(r["created_at"]),
+        source_chat_id=r["source_chat_id"],
+        revoked=bool(r["revoked"]),
+    )
+
+
+async def record_grant(
+    db: aiosqlite.Connection,
+    *,
+    tg_user_id: int,
+    panel_username: str,
+    tg_username: str | None = None,
+    panel_user_id: int | None = None,
+    group_ids: list[int] | None = None,
+    data_limit: int | None = None,
+    expire_at: datetime | None = None,
+    source_chat_id: int | None = None,
+) -> None:
+    """Insert or replace the grant row for this Telegram user."""
+    await db.execute(
+        "INSERT INTO trial_grants (tg_user_id, tg_username, panel_username, panel_user_id, "
+        "group_ids, data_limit, expire_at, created_at, source_chat_id, revoked) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) "
+        "ON CONFLICT(tg_user_id) DO UPDATE SET tg_username = excluded.tg_username, "
+        "panel_username = excluded.panel_username, panel_user_id = excluded.panel_user_id, "
+        "group_ids = excluded.group_ids, data_limit = excluded.data_limit, "
+        "expire_at = excluded.expire_at, created_at = excluded.created_at, "
+        "source_chat_id = excluded.source_chat_id, revoked = 0",
+        (
+            tg_user_id,
+            tg_username,
+            panel_username,
+            panel_user_id,
+            json.dumps(group_ids or []),
+            data_limit,
+            expire_at.isoformat() if expire_at else None,
+            _now(),
+            source_chat_id,
+        ),
+    )
+    await db.commit()
+
+
+async def revoke_grant(db: aiosqlite.Connection, tg_user_id: int) -> bool:
+    cursor = await db.execute(
+        "UPDATE trial_grants SET revoked = 1 WHERE tg_user_id = ?", (tg_user_id,)
+    )
+    await db.commit()
+    return cursor.rowcount > 0

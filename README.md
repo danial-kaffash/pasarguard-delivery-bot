@@ -18,7 +18,7 @@ Full design: see **[PLAN.md](PLAN.md)**.
 | M1 | Skeleton: config, logging, Docker | ✅ done |
 | M2 | PasarGuard API client (typed, auto re-auth) + tests | ✅ done |
 | M3 | Channel promo scheduler (pinned post) | ✅ done |
-| M4 | Trial flow: /start → group select → 5 GB account → sub URL | ⏳ next |
+| M4 | Trial flow: /start → group select → 5 GB account → sub URL | ✅ done |
 | M5 | Owner commands, join/leave stats, polish, setup guide | ⏳ |
 
 ## Layout

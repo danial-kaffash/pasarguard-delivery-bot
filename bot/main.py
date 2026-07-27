@@ -12,10 +12,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
+from panel.client import PasarGuardApiClient
 from storage import db as store
 
 from .config import get_settings
-from .handlers.start import router as start_router
+from .handlers.trial import router as trial_router
 from .logging_setup import setup_logging
 from .promo import run_scheduler
 
@@ -30,14 +31,22 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
     dp = Dispatcher()
     dp["settings"] = settings
 
-    dp.include_router(start_router)
+    dp.include_router(trial_router)
 
     async def on_startup() -> None:
         db = await store.connect(settings.db_path)
         seeded = await store.seed_offer_groups_from_file(db, settings.offer_groups_file)
         if seeded:
             logger.info("Seeded %d offer group(s) from %s", seeded, settings.offer_groups_file)
+        panel = PasarGuardApiClient(
+            settings.panel_base_url,
+            settings.panel_admin_username,
+            settings.panel_admin_password,
+            verify_ssl=settings.panel_verify_ssl,
+            timeout=settings.panel_timeout_seconds,
+        )
         dp["db"] = db
+        dp["panel"] = panel
         dp["scheduler_task"] = asyncio.create_task(
             run_scheduler(bot, db, settings), name="promo-scheduler"
         )
@@ -54,6 +63,9 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
                 await task
             except asyncio.CancelledError:
                 pass
+        panel = dp.get("panel")
+        if panel:
+            await panel.aclose()
         db = dp.get("db")
         if db:
             await db.close()

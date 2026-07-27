@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from storage import db as store
@@ -86,3 +88,40 @@ async def test_seed_empty_and_malformed_files(tmp_path, db):
     bad.write_text('[{"id": 2, "label": "ok"}, {"nope": true}]', encoding="utf-8")
     assert await store.seed_offer_groups_from_file(db, bad) == 1
     assert [g.id for g in await store.list_offer_groups(db)] == [2]
+
+
+# ── trial grants ─────────────────────────────────────────────────────────────
+
+
+async def test_trial_grant_record_and_get(db):
+    assert await store.get_latest_grant(db, 12345) is None
+    expire = datetime(2026, 8, 7, 0, 0, tzinfo=UTC)
+    await store.record_grant(
+        db,
+        tg_user_id=12345,
+        tg_username="ali",
+        panel_username="t12345_ab12cd",
+        panel_user_id=101,
+        group_ids=[2, 5],
+        data_limit=5 * 1024**3,
+        expire_at=expire,
+    )
+    grant = await store.get_latest_grant(db, 12345)
+    assert grant.panel_username == "t12345_ab12cd"
+    assert grant.group_ids == [2, 5]
+    assert grant.data_limit == 5 * 1024**3
+    assert grant.expire_at == expire
+    assert grant.revoked is False
+    assert grant.created_at.tzinfo is not None  # tz-aware for eligibility math
+
+
+async def test_trial_grant_re_record_replaces_and_unrevokes(db):
+    await store.record_grant(db, tg_user_id=1, panel_username="old_user")
+    assert await store.revoke_grant(db, 1) is True
+    assert (await store.get_latest_grant(db, 1)).revoked is True
+
+    await store.record_grant(db, tg_user_id=1, panel_username="new_user")
+    grant = await store.get_latest_grant(db, 1)
+    assert grant.panel_username == "new_user"
+    assert grant.revoked is False
+    assert await store.revoke_grant(db, 999) is False
