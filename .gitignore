@@ -203,6 +203,13 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Bot runtime data (SQLite DB & journals). Seed files like
+# data/offer_groups.json stay tracked.
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
 # Ruff stuff:
 .ruff_cache/
 

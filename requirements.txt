@@ -1,0 +1,6 @@
+# Runtime dependencies
+aiogram>=3.13,<4
+httpx>=0.27,<0.28
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+aiosqlite>=0.20,<0.21
