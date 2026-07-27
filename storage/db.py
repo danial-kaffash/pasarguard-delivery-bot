@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS trial_grants (
     source_chat_id INTEGER,
     revoked        INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id    INTEGER NOT NULL,
+    tg_user_id INTEGER NOT NULL,
+    status     TEXT    NOT NULL,      -- latest known membership status
+    updated_at TEXT    NOT NULL,
+    PRIMARY KEY (chat_id, tg_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS member_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER NOT NULL,
+    tg_user_id INTEGER NOT NULL,
+    kind       TEXT    NOT NULL,      -- 'join' | 'leave'
+    at         TEXT    NOT NULL
+);
 """
 
 
@@ -295,3 +311,67 @@ async def revoke_grant(db: aiosqlite.Connection, tg_user_id: int) -> bool:
     )
     await db.commit()
     return cursor.rowcount > 0
+
+
+async def list_grants(db: aiosqlite.Connection) -> list[TrialGrant]:
+    """All grant rows (for /stats)."""
+    rows = await db.execute_fetchall("SELECT * FROM trial_grants ORDER BY created_at DESC")
+    return [
+        TrialGrant(
+            tg_user_id=r["tg_user_id"],
+            tg_username=r["tg_username"],
+            panel_username=r["panel_username"],
+            panel_user_id=r["panel_user_id"],
+            group_ids=json.loads(r["group_ids"]) if r["group_ids"] else None,
+            data_limit=r["data_limit"],
+            expire_at=_parse_dt(r["expire_at"]),
+            created_at=datetime.fromisoformat(r["created_at"]),
+            source_chat_id=r["source_chat_id"],
+            revoked=bool(r["revoked"]),
+        )
+        for r in rows
+    ]
+
+
+# ── chat members & join/leave events ────────────────────────────────────────
+
+
+async def upsert_chat_member(
+    db: aiosqlite.Connection, chat_id: int, tg_user_id: int, status: str
+) -> None:
+    await db.execute(
+        "INSERT INTO chat_members (chat_id, tg_user_id, status, updated_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(chat_id, tg_user_id) DO UPDATE SET status = excluded.status, "
+        "updated_at = excluded.updated_at",
+        (chat_id, tg_user_id, status, _now()),
+    )
+    await db.commit()
+
+
+async def count_chat_members(
+    db: aiosqlite.Connection, chat_id: int, statuses: tuple[str, ...] = ("member", "administrator")
+) -> int:
+    placeholders = ",".join("?" * len(statuses))
+    rows = await db.execute_fetchall(
+        f"SELECT COUNT(*) AS c FROM chat_members WHERE chat_id = ? AND status IN ({placeholders})",
+        (chat_id, *statuses),
+    )
+    return rows[0]["c"]
+
+
+async def record_member_event(
+    db: aiosqlite.Connection, chat_id: int, tg_user_id: int, kind: str
+) -> None:
+    await db.execute(
+        "INSERT INTO member_events (chat_id, tg_user_id, kind, at) VALUES (?, ?, ?, ?)",
+        (chat_id, tg_user_id, kind, _now()),
+    )
+    await db.commit()
+
+
+async def count_member_events(db: aiosqlite.Connection, kind: str, since: datetime) -> int:
+    rows = await db.execute_fetchall(
+        "SELECT COUNT(*) AS c FROM member_events WHERE kind = ? AND at >= ?",
+        (kind, since.isoformat()),
+    )
+    return rows[0]["c"]

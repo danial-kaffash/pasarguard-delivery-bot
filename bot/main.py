@@ -6,16 +6,21 @@ The trial flow (M4) plugs into the same dispatcher via extra routers.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import ErrorEvent
 
 from panel.client import PasarGuardApiClient
 from storage import db as store
 
+from . import texts
 from .config import get_settings
+from .handlers.admin import router as admin_router
+from .handlers.member_events import router as member_events_router
 from .handlers.trial import router as trial_router
 from .logging_setup import setup_logging
 from .promo import run_scheduler
@@ -31,7 +36,9 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
     dp = Dispatcher()
     dp["settings"] = settings
 
+    dp.include_router(admin_router)
     dp.include_router(trial_router)
+    dp.include_router(member_events_router)
 
     async def on_startup() -> None:
         db = await store.connect(settings.db_path)
@@ -73,7 +80,23 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
 
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
+    dp.errors.register(on_error)
     return bot, dp
+
+
+async def on_error(event: ErrorEvent, bot: Bot) -> bool:
+    """Last-resort handler: log, and politely inform the user when possible."""
+    logger.exception("Unhandled error in update handler: %s", event.exception)
+    update = event.update
+    chat_id = None
+    if update and update.message:
+        chat_id = update.message.chat.id
+    elif update and update.callback_query and update.callback_query.message:
+        chat_id = update.callback_query.message.chat.id
+    if chat_id:
+        with contextlib.suppress(Exception):
+            await bot.send_message(chat_id, texts.ERROR_TRY_AGAIN)
+    return True
 
 
 def main() -> None:

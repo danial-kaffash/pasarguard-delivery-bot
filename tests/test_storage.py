@@ -125,3 +125,37 @@ async def test_trial_grant_re_record_replaces_and_unrevokes(db):
     assert grant.panel_username == "new_user"
     assert grant.revoked is False
     assert await store.revoke_grant(db, 999) is False
+
+
+async def test_list_grants(db):
+    await store.record_grant(db, tg_user_id=1, panel_username="a")
+    await store.record_grant(db, tg_user_id=2, panel_username="b")
+    grants = await store.list_grants(db)
+    assert {g.tg_user_id for g in grants} == {1, 2}
+
+
+# ── chat members & events ────────────────────────────────────────────────────
+
+
+async def test_chat_members_upsert_and_count(db):
+    await store.upsert_chat_member(db, -100, 1, "member")
+    await store.upsert_chat_member(db, -100, 2, "administrator")
+    await store.upsert_chat_member(db, -100, 3, "left")
+    assert await store.count_chat_members(db, -100) == 2
+    # status update replaces, doesn't duplicate
+    await store.upsert_chat_member(db, -100, 1, "left")
+    assert await store.count_chat_members(db, -100) == 1
+
+
+async def test_member_events_count_with_since(db):
+    from datetime import UTC, datetime, timedelta
+
+    await store.record_member_event(db, -100, 1, "join")
+    await store.record_member_event(db, -100, 2, "join")
+    await store.record_member_event(db, -100, 1, "leave")
+
+    since = datetime.now(UTC) - timedelta(minutes=1)
+    assert await store.count_member_events(db, "join", since) == 2
+    assert await store.count_member_events(db, "leave", since) == 1
+    future = datetime.now(UTC) + timedelta(minutes=1)
+    assert await store.count_member_events(db, "join", future) == 0
