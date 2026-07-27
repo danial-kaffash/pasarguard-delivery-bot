@@ -1,4 +1,5 @@
 # pasarguard-greet-bot
+# pasarguard-greet-bot
 
 A Telegram bot that markets a **free 5 GB test** for your PasarGuard xray panel:
 
@@ -103,7 +104,9 @@ pytest -q                     # 68 tests
 
 | Command | What it does |
 |---|---|
-| `/setmaxage <days>` | Only members who joined within `<days>` may get a test (0 = off) |
+| `/pause` | **Master switch off** — stops promo posts and trial delivery (restart-safe) |
+| `/resume` | **Master switch on** — a due promo post goes out within a minute |
+| `/setmaxage <days>` | Only members who joined within `<days>` may get a test (0 = off). Based on the bot's join tracking — members from before the bot are ineligible while active |
 | `/setpromo <text>` | Change the channel promo message (HTML allowed), no restart |
 | `/setinterval <hours>` | How often the promo post is refreshed (e.g. `6`) |
 | `/promonow` | Publish + pin the promo post immediately |
@@ -128,4 +131,6 @@ An **empty offer list pauses trials** — the bot replies "در حال حاضر 
 - `TRIAL_PROTOCOLS=vless` — comma-separated protocols
 - `AUTO_DELETE_DAYS=11` — panel-side cleanup of finished trials
 - `ALLOW_REGRANT_AFTER_DAYS=30` — cooldown before a user may re-claim
+- `TRIAL_MAX_MEMBER_AGE_DAYS=0` — "new members only": 0 = off, else only members
+  who joined within N days are eligible (runtime: `/setmaxage`)
 - `PANEL_VERIFY_SSL=true` — set `false` if the panel uses a self-signed cert
