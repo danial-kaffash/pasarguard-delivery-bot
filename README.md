@@ -17,16 +17,19 @@ Full design: see **[PLAN.md](PLAN.md)**.
 |---|---|---|
 | M1 | Skeleton: config, logging, Docker | ✅ done |
 | M2 | PasarGuard API client (typed, auto re-auth) + tests | ✅ done |
-| M3 | Channel promo scheduler (pinned post) | ⏳ next |
-| M4 | Trial flow: /start → group select → 5 GB account → sub URL | ⏳ |
+| M3 | Channel promo scheduler (pinned post) | ✅ done |
+| M4 | Trial flow: /start → group select → 5 GB account → sub URL | ⏳ next |
 | M5 | Owner commands, join/leave stats, polish, setup guide | ⏳ |
 
 ## Layout
 
 ```
-bot/            # Telegram bot: config, logging, entrypoint (handlers from M3)
+bot/            # Telegram bot: config, logging, entrypoint, promo scheduler
+  handlers/     # aiogram routers (/start placeholder until M4)
 panel/          # PasarGuardAPI client: models, exceptions, async client
-tests/          # pytest suite (HTTP mocked with respx)
+storage/        # SQLite (aiosqlite): settings, promo state, offer groups
+texts/          # default promo message (Persian)
+tests/          # pytest suite (HTTP mocked with respx; FakeBot for Telegram)
 data/           # runtime data (SQLite DB — git-ignored; offer_groups.json seed)
 ```
 
