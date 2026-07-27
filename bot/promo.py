@@ -19,6 +19,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from storage import db as store
 
+from .pause import is_paused
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROMO_FILE = Path(__file__).resolve().parent.parent / "texts" / "promo_fa.txt"
@@ -29,6 +31,7 @@ PROMO_INTERVAL_KEY = "promo_interval_hours"
 START_PAYLOAD = "join"  # t.me/<bot>?start=join
 STARTUP_GRACE_SECONDS = 15.0  # delay of the very first post after boot
 RETRY_BACKOFF_SECONDS = 60.0
+PAUSE_POLL_SECONDS = 60.0  # re-check pause flag interval
 
 
 # ── content & configuration resolution ──────────────────────────────────────
@@ -125,6 +128,12 @@ async def run_scheduler(bot: Bot, db: aiosqlite.Connection, settings) -> None:
         wait = STARTUP_GRACE_SECONDS if state is None else max(0.0, state.next_run_at - now)
         logger.info("Next promo post in %.0f s", wait)
         await asyncio.sleep(wait)
+        if await is_paused(db):
+            logger.info(
+                "Bot paused - skipping promo post; re-checking in %.0f s.", PAUSE_POLL_SECONDS
+            )
+            await asyncio.sleep(PAUSE_POLL_SECONDS)
+            continue  # next_run stays in the past -> posts promptly after /resume
         try:
             message_id = await publish_promo(
                 bot,

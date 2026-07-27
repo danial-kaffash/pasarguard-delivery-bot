@@ -24,6 +24,7 @@ from storage import db as store
 
 from .. import texts
 from ..keyboards import GroupCB, build_selection_keyboard
+from ..pause import is_paused
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,10 @@ async def on_start(
 ) -> None:
     if message.chat.type != "private":
         await message.answer(texts.PRIVATE_ONLY)
+        return
+
+    if await is_paused(db):
+        await message.answer(texts.PAUSED)
         return
 
     user = message.from_user
@@ -147,6 +152,12 @@ async def confirm_selection(
 
     if not selected:
         await callback.answer(texts.SELECT_HINT, show_alert=True)
+        return
+
+    if await is_paused(db):
+        await state.clear()
+        await callback.message.edit_text(texts.PAUSED)
+        await callback.answer()
         return
 
     # Re-check eligibility at confirm time (guards against races/double taps).

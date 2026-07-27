@@ -22,6 +22,7 @@ from panel.exceptions import PanelError
 from services import trial as trial_service
 from storage import db as store
 
+from ..pause import set_paused
 from ..promo import (
     PROMO_INTERVAL_KEY,
     PROMO_TEXT_KEY,
@@ -210,6 +211,22 @@ async def cmd_clearoffers(message: Message, db: aiosqlite.Connection) -> None:
 
 
 # ── grants & stats ───────────────────────────────────────────────────────────
+
+
+@router.message(IsOwner(), Command("pause"))
+async def cmd_pause(message: Message, db: aiosqlite.Connection) -> None:
+    await set_paused(db, True)
+    await message.answer(
+        "⏸ ربات متوقف شد: پست تبلیغاتی و تحویل تست ارسال نمی‌شه.\nبرای شروع دوباره: /resume"
+    )
+
+
+@router.message(IsOwner(), Command("resume"))
+async def cmd_resume(message: Message, db: aiosqlite.Connection) -> None:
+    await set_paused(db, False)
+    await message.answer(
+        "▶️ ربات دوباره فعال شد.\nاگه زمان پست تبلیغاتی رسیده باشه، تا یک دقیقهٔ دیگه ارسال می‌شه."
+    )
 
 
 @router.message(IsOwner(), Command("reset"))
