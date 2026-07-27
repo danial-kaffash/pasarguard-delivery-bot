@@ -72,6 +72,17 @@ async def on_start(
     user = message.from_user
     name = _display_name(message)
 
+    # "New members only" gate (0 = disabled): the user's recorded channel
+    # join must be within the configured window; unknown age fails the gate.
+    max_age = await trial_service.get_max_member_age_days(
+        db, settings.trial_max_member_age_days
+    )
+    if max_age > 0:
+        join_at = await store.get_first_join_at(db, settings.channel_id, user.id)
+        if not trial_service.is_membership_recent_enough(join_at, max_age):
+            await message.answer(texts.NOT_NEW_MEMBER.format(days=f"{max_age:g}"))
+            return
+
     grant = await store.get_latest_grant(db, user.id)
     eligibility = trial_service.check_eligibility(grant, settings)
 

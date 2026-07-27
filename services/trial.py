@@ -167,3 +167,37 @@ async def create_trial(
             last_error = exc
     assert last_error is not None
     raise last_error
+
+
+# -- membership-age gate ("new members only") ---------------------------------
+
+MAX_MEMBER_AGE_KEY = "trial_max_member_age_days"
+
+
+async def get_max_member_age_days(db: aiosqlite.Connection, default: float) -> float:
+    """Runtime override (via /setmaxage) beats the .env default. 0 = disabled."""
+    raw = await store.get_setting(db, MAX_MEMBER_AGE_KEY)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid max member age setting %r - using default %s", raw, default)
+        return default
+    return value if value >= 0 else default
+
+
+def is_membership_recent_enough(
+    join_at: datetime | None, max_age_days: float, now: datetime | None = None
+) -> bool:
+    """True when the rule is off (<=0) or the recorded join is within the window.
+
+    join_at=None (never tracked, e.g. member from before the bot) fails the
+    gate whenever it is active - only verifiably new members get trials.
+    """
+    if max_age_days <= 0:
+        return True
+    if join_at is None:
+        return False
+    now = now or datetime.now(UTC)
+    return now - join_at <= timedelta(days=max_age_days)

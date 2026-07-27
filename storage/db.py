@@ -375,3 +375,16 @@ async def count_member_events(db: aiosqlite.Connection, kind: str, since: dateti
         (kind, since.isoformat()),
     )
     return rows[0]["c"]
+
+
+async def get_first_join_at(
+    db: aiosqlite.Connection, chat_id: int, tg_user_id: int
+) -> datetime | None:
+    """When we first saw this user join the chat (None = never tracked)."""
+    rows = await db.execute_fetchall(
+        "SELECT MIN(at) AS first_at FROM member_events "
+        "WHERE chat_id = ? AND tg_user_id = ? AND kind = 'join'",
+        (chat_id, tg_user_id),
+    )
+    value = rows[0]["first_at"] if rows else None
+    return datetime.fromisoformat(value) if value else None

@@ -52,12 +52,13 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/bot.db")
     log_level: str = "INFO"
     rate_limit_per_minute: int = 30  # per-user flood protection
+    trial_max_member_age_days: float = 0  # 0 = off; else only members newer than N days
 
     @field_validator("owner_tg_ids", mode="before")
     @classmethod
     def _split_csv_ids(cls, v):
         """Accept OWNER_TG_IDS as a bare id (95272833), a CSV string
-        ("111,222"), or a JSON list ([111, 222]) — env sources may deliver
+        ("111,222"), or a JSON list ([111, 222]) â€” env sources may deliver
         any of the three depending on JSON-parseability."""
         if v is None or v == "":
             return []

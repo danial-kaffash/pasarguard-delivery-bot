@@ -213,6 +213,31 @@ async def cmd_clearoffers(message: Message, db: aiosqlite.Connection) -> None:
 # ── grants & stats ───────────────────────────────────────────────────────────
 
 
+@router.message(IsOwner(), Command("setmaxage"))
+async def cmd_setmaxage(
+    message: Message, command: CommandObject, db: aiosqlite.Connection
+) -> None:
+    """Limit trials to members who joined within the last N days (0 = off)."""
+    raw = (command.args or "").strip()
+    try:
+        days = float(raw)
+    except ValueError:
+        days = -1
+    if days < 0 or days > 3650:
+        await message.answer(
+            "📝 کاربرد: <code>/setmaxage 7</code>\n"
+            "(تعداد روز؛ فقط اعضای جدیدتر از این مدت می‌تونن تست بگیرن — ۰ یعنی غیرفعال)"
+        )
+        return
+    await store.set_setting(db, trial_service.MAX_MEMBER_AGE_KEY, f"{days:g}")
+    if days == 0:
+        await message.answer("✅ محدودیت سابقهٔ عضویت حذف شد؛ همهٔ اعضا می‌تونن تست بگیرن.")
+    else:
+        await message.answer(
+            f"✅ از این به بعد فقط اعضای حداکثر <b>{days:g} روزه</b> کانال تست می‌گیرن."
+        )
+
+
 @router.message(IsOwner(), Command("pause"))
 async def cmd_pause(message: Message, db: aiosqlite.Connection) -> None:
     await set_paused(db, True)

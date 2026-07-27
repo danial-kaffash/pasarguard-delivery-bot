@@ -103,6 +103,7 @@ pytest -q                     # 68 tests
 
 | Command | What it does |
 |---|---|
+| `/setmaxage <days>` | Only members who joined within `<days>` may get a test (0 = off) |
 | `/setpromo <text>` | Change the channel promo message (HTML allowed), no restart |
 | `/setinterval <hours>` | How often the promo post is refreshed (e.g. `6`) |
 | `/promonow` | Publish + pin the promo post immediately |
