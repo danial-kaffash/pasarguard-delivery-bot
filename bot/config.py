@@ -1,6 +1,6 @@
 """Application settings, loaded from environment variables / `.env`.
 
-Every knob from PLAN.md Â§7 lives here. Values are validated at startup;
+Every knob from PLAN.md 7 lives here. Values are validated at startup;
 the process fails fast with a clear message if something is missing.
 """
 
@@ -56,7 +56,13 @@ class Settings(BaseSettings):
     @field_validator("owner_tg_ids", mode="before")
     @classmethod
     def _split_csv_ids(cls, v):
-        """Accept a comma-separated string ("123,456") from .env."""
+        """Accept OWNER_TG_IDS as a bare id (95272833), a CSV string
+        ("111,222"), or a JSON list ([111, 222]) — env sources may deliver
+        any of the three depending on JSON-parseability."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, int):
+            return [v]
         if isinstance(v, str):
             return [int(part) for part in v.split(",") if part.strip()]
         return v
