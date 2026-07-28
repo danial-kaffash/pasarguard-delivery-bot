@@ -238,8 +238,17 @@ def build_offer_menu(ch: store.Channel, offers: list[store.ChannelOfferGroup]) -
 def _main_menu(db_channels: list[store.Channel], *, is_super: bool) -> InlineKeyboardMarkup:
     kb = build_channel_list_keyboard(db_channels)
     if is_super:
+        kb.inline_keyboard.insert(0, [_btn("💾 پشتیبان‌گیری", "view", "backup_menu")])
         kb.inline_keyboard.insert(0, [_btn("🖥 مدیریت پنل‌ها", "view", "panels")])
     return kb
+
+
+def build_backup_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [_btn("💾 بکاپ دیتابیس (.db)", "confirm", "backup_db")],
+        [_btn("📤 خروجی تنظیمات (.json)", "confirm", "backup_export")],
+        [_back_btn("main")],
+    ])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -322,6 +331,13 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("ch", ch.id)]]),
             )
 
+    elif target == "backup_menu":
+        await callback.message.edit_text(
+            "💾 <b>پشتیبانگیری و بازیابی</b>\n\n"
+            "برای بازیابی فایل بکاپ (.db): فایل را بفرستید و ریپلای /restore\n"
+            "برای بازیابی فایل تنظیمات (.json): فایل را بفرستید و ریپلای /import",
+            reply_markup=build_backup_menu(),
+        )
     elif target == "panels":
         panels = await store.list_panels(db, active_only=False)
         if not panels:
@@ -334,6 +350,13 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
         if p:
             await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
 
+    elif target == "backup_menu":
+        await callback.message.edit_text(
+            "💾 <b>پشتیبانگیری و بازیابی</b>\n\n"
+            "برای بازیابی فایل بکاپ (.db): فایل را بفرستید و ریپلای /restore\n"
+            "برای بازیابی فایل تنظیمات (.json): فایل را بفرستید و ریپلای /import",
+            reply_markup=build_backup_menu(),
+        )
     elif target == "main":
         uid = callback.from_user.id
         is_sup = await _is_super(db, uid, settings)
@@ -458,7 +481,7 @@ async def on_toggle(callback: CallbackQuery, callback_data: PanelCB, db: aiosqli
 
 
 @router.callback_query(PanelCB.filter(F.action == "confirm"))
-async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, db: aiosqlite.Connection, panel_manager: PanelManager) -> None:
+async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, db: aiosqlite.Connection, panel_manager: PanelManager, settings) -> None:
     target, tid, extra = callback_data.target, callback_data.tid, callback_data.extra
 
     if target == "promonow":
@@ -502,6 +525,39 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
             await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
             await callback.answer("✅ غیرفعال شد.")
             return
+
+    elif target == "backup_db":
+        try:
+            from pathlib import Path
+            from aiogram.types import BufferedInputFile
+            db_path = Path(settings.db_path)
+            if db_path.exists():
+                await db.commit()
+                file_bytes = db_path.read_bytes()
+                ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+                doc = BufferedInputFile(file_bytes, filename=f"pasarguard_backup_{ts}.db")
+                await callback.message.answer_document(document=doc, caption=f"💾 بکاپ دیتابیس — {ts}")
+                await callback.answer("✅ بکاپ ارسال شد.", show_alert=True)
+            else:
+                await callback.answer("❌ فایل دیتابیس یافت نشد.", show_alert=True)
+        except Exception as exc:
+            logger.exception("Panel backup failed")
+            await callback.answer(f"❌ خطا: {exc}", show_alert=True)
+
+    elif target == "backup_export":
+        try:
+            from .backup import _build_export
+            import json as _json
+            from aiogram.types import BufferedInputFile
+            data = await _build_export(db)
+            json_bytes = _json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            doc = BufferedInputFile(json_bytes, filename=f"pasarguard_config_{ts}.json")
+            await callback.message.answer_document(document=doc, caption=f"📤 خروجی تنظیمات — {ts}")
+            await callback.answer("✅ خروجی ارسال شد.", show_alert=True)
+        except Exception as exc:
+            logger.exception("Panel export failed")
+            await callback.answer(f"❌ خطا: {exc}", show_alert=True)
 
     else:
         await callback.answer()

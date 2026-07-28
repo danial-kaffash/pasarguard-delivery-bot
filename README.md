@@ -85,6 +85,9 @@ Type `/panel` in DM to the bot. Shows a button-based UI:
 ├─ 🔗 Join Requests → toggle pause, edit delay
 ├─ 🌐 Offer Groups → view, add (wizard), remove, clear all
 └─ 📊 Stats
+
+🖥 Panels → manage all panels (superadmin)
+💾 Backup → download database or export config (superadmin)
 ```
 
 Every edit: tap button → type value → saved. No need to remember command syntax.
@@ -112,6 +115,7 @@ Every edit: tap button → type value → saved. No need to remember command syn
 | `/users` | List all users with roles |
 | `/sysstats` | System-wide stats |
 | `/backup` | Send the SQLite database file as a document |
+| `/restore` | Reply to a .db backup file with `/restore` — replaces database and restarts bot |
 | `/export` | Export configuration as portable JSON (panels, channels, users, offer groups) |
 | `/import` | Reply to a JSON export file with `/import` to restore configuration |
 
