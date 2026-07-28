@@ -1,6 +1,9 @@
 """Trial business logic: eligibility, panel-user creation, group caching.
 
 Kept free of aiogram imports so it can be unit-tested with plain fakes.
+
+Supports both legacy single-tenant (settings object) and multi-tenant
+(ChannelSettings adapter) callers — both expose the same duck-typed interface.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ import string
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import aiosqlite
 
@@ -23,6 +27,9 @@ from panel.models import (
     UserStatusCreate,
 )
 from storage import db as store
+
+if TYPE_CHECKING:
+    from panel.manager import PanelManager
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +147,61 @@ async def get_offered_groups(
     stale = [o.id for o in offers if o.id not in panel_map]
     if stale:
         logger.warning("Offer list contains ids missing from the panel: %s", stale)
+    return valid, stale
+
+
+# ── multi-panel channel offer groups ────────────────────────────────────────
+
+
+async def get_channel_offered_groups(
+    panel_manager: PanelManager,
+    db: aiosqlite.Connection,
+    channel_id: int,
+) -> tuple[list[store.ChannelOfferGroup], list[tuple[int, int]]]:
+    """Channel-scoped offer list, validated against each group's panel.
+
+    Returns (valid offer groups, stale (panel_id, group_id) pairs that were skipped).
+    Each offer group is linked to a specific panel — the manager resolves
+    the correct client and validates the group id still exists.
+    """
+    offers = await store.list_channel_offer_groups(db, channel_id)
+    if not offers:
+        return [], []
+
+    # Group offers by panel_id so we batch API calls.
+    by_panel: dict[int, list[store.ChannelOfferGroup]] = {}
+    for o in offers:
+        by_panel.setdefault(o.panel_id, []).append(o)
+
+    valid: list[store.ChannelOfferGroup] = []
+    stale: list[tuple[int, int]] = []
+
+    for panel_id, panel_offers in by_panel.items():
+        panel = await store.get_panel(db, panel_id)
+        if panel is None or not panel.active:
+            for o in panel_offers:
+                stale.append((o.panel_id, o.group_id))
+            logger.warning("Panel id=%s missing/inactive — skipping %d offer(s).", panel_id, len(panel_offers))
+            continue
+
+        try:
+            panel_map = await panel_manager.list_groups(panel)
+        except Exception:
+            logger.exception("Could not fetch groups from panel id=%s", panel_id)
+            for o in panel_offers:
+                stale.append((o.panel_id, o.group_id))
+            continue
+
+        for o in panel_offers:
+            if o.group_id in panel_map:
+                valid.append(o)
+            else:
+                stale.append((o.panel_id, o.group_id))
+                logger.warning(
+                    "Offer group %s (panel=%s) missing from panel — skipped.",
+                    o.group_id, panel_id,
+                )
+
     return valid, stale
 
 

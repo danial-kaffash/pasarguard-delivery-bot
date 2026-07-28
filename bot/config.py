@@ -30,11 +30,11 @@ class Settings(BaseSettings):
     promo_pin: bool = True
     promo_silent: bool = True  # pin/post without notifying subscribers
 
-    # --- PasarGuard panel ---------------------------------------------------
-    panel_base_url: str
-    panel_admin_username: str
-    panel_admin_password: str
-    panel_verify_ssl: bool = True  # set False for self-signed certs
+    # --- PasarGuard panel (legacy — used only for first-run migration) ---------
+    panel_base_url: str = ""
+    panel_admin_username: str = ""
+    panel_admin_password: str = ""
+    panel_verify_ssl: bool = True
     panel_timeout_seconds: float = 15.0
 
     # --- Trial (on-hold mode) -----------------------------------------------
@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     offer_groups_file: Path = Path("data/offer_groups.json")
     auto_delete_days: int = 11  # grace + usage + margin; panel-side cleanup
     allow_regrant_after_days: int = 30  # cooldown before a user may re-claim
+
+    # --- Join-request feature -----------------------------------------------
+    join_approval_delay_seconds: int = 10  # seconds before approving a join request
+
+    # --- Encryption ---------------------------------------------------------
+    db_encryption_key: str = ""  # Fernet key for encrypting panel passwords at rest
 
     # --- Owner / misc --------------------------------------------------------
     owner_tg_ids: list[int] = Field(default_factory=list)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from storage.db import OfferGroup
+from storage.db import ChannelOfferGroup, OfferGroup
 
 
 class GroupCB(CallbackData, prefix="grp"):
@@ -18,16 +18,25 @@ class GroupCB(CallbackData, prefix="grp"):
     gid: int = 0
 
 
-def build_selection_keyboard(offers: list[OfferGroup], selected: set[int]) -> InlineKeyboardMarkup:
+def _offer_id(offer) -> int:
+    """Extract the group id from either OfferGroup or ChannelOfferGroup."""
+    return offer.group_id if hasattr(offer, "group_id") else offer.id
+
+
+def build_selection_keyboard(
+    offers: list[OfferGroup] | list[ChannelOfferGroup],
+    selected: set[int],
+) -> InlineKeyboardMarkup:
     """Two-column group buttons (✅ when selected) + confirm/cancel row."""
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for offer in offers:
-        mark = "✅ " if offer.id in selected else ""
+        gid = _offer_id(offer)
+        mark = "✅ " if gid in selected else ""
         row.append(
             InlineKeyboardButton(
                 text=f"{mark}{offer.label}",
-                callback_data=GroupCB(action="toggle", gid=offer.id).pack(),
+                callback_data=GroupCB(action="toggle", gid=gid).pack(),
             )
         )
         if len(row) == 2:
