@@ -1,4 +1,4 @@
-"""Entrypoint (M3): aiogram dispatcher + channel promo scheduler.
+"""Entrypoint (M3): aiogram dispatcher + channel promo & posts schedulers.
 
 The trial flow (M4) plugs into the same dispatcher via extra routers.
 Multi-tenant: uses PanelManager for multiple panels.
@@ -16,6 +16,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
 from panel.manager import PanelManager
+from services.posts import run_posts_scheduler
 from storage import db as store
 
 from . import texts
@@ -25,6 +26,7 @@ from .handlers.backup import router as backup_router
 from .handlers.join_request import router as join_request_router
 from .handlers.member_events import router as member_events_router
 from .handlers.panel import router as panel_router
+from .handlers.posts import router as posts_router
 from .handlers.trial import router as trial_router
 from .logging_setup import setup_logging
 from .middlewares import RateLimitMiddleware
@@ -44,6 +46,7 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
     dp.include_router(admin_router)
     dp.include_router(backup_router)
     dp.include_router(panel_router)
+    dp.include_router(posts_router)
     dp.include_router(trial_router)
     dp.include_router(join_request_router)
     dp.include_router(member_events_router)
@@ -101,19 +104,24 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
         dp["scheduler_task"] = asyncio.create_task(
             run_scheduler(bot, db, settings), name="promo-scheduler"
         )
+        # Channel-posts scheduler (manual/scheduled/recurring posts + ephemeral expiry).
+        dp["posts_scheduler_task"] = asyncio.create_task(
+            run_posts_scheduler(bot, db, settings), name="posts-scheduler"
+        )
         me = await bot.get_me()
         logger.info(
             "Bot @%s is up. Deep link: https://t.me/%s?start=join", me.username, me.username
         )
 
     async def on_shutdown() -> None:
-        task = dp.get("scheduler_task")
-        if task:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        for key in ("scheduler_task", "posts_scheduler_task"):
+            task = dp.get(key)
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         panel_manager: PanelManager | None = dp.get("panel_manager")
         if panel_manager:
             await panel_manager.close_all()

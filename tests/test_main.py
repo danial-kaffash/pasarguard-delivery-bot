@@ -89,10 +89,13 @@ async def test_dispatcher_lifecycle_wiring_startup_shutdown(tmp_path, fake_teleg
         assert dp["panel_manager"] is not None
         task = dp.get("scheduler_task")
         assert task is not None and not task.done()
+        posts_task = dp.get("posts_scheduler_task")
+        assert posts_task is not None and not posts_task.done()
 
         # ── shutdown ──
         await dp.emit_shutdown(bot=FakeBot())
         assert task.cancelled()
+        assert posts_task.cancelled()
     finally:
         await bot.session.close()
 

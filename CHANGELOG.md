@@ -15,12 +15,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `docs/channel-posts-plan.md` — DRAFT design for manual & scheduled channel
-  posts: rich inline buttons (URL / no-op / copy), native colors
-  (`style`: green/red/blue), premium emojis in caption + button icons with
-  auto-fallback, delete-previous (channel default + per-post), pin/silent,
-  single media, one-shot + daily/weekly scheduling (Asia/Tehran).
-  Awaiting operator review before implementation.
+- **Channel posts feature (v1)** — `/newpost` wizard, `/posts` management,
+  `/checkpremium` diagnostic, and a 30-second posts scheduler:
+  - `/newpost [channel_tg_id]` — guided wizard: multi-channel picker →
+    content (text / photo / video / animation / forward, entities incl.
+    premium emojis preserved verbatim) → button builder (URL / no-op /
+    copy-to-clipboard, native colors green/red/blue, premium-emoji button
+    icons) → layout (`2,1` row spec) → options (delete-previous, pin,
+    silent, link preview, ephemeral 1/6/12/24h) → schedule (immediate /
+    one-shot / daily / weekly Tehran time, save-as-template toggle) → live
+    preview → confirm; multi-channel fan-out shares a `group_id`.
+  - `/posts [channel_tg_id]` + «📝 پست‌ها» in the `/panel` channel menu —
+    list posts, send now, cancel, reschedule, edit published text in place,
+    copy-as-new, delete.
+  - `/checkpremium` — echo diagnostic for premium-emoji sendability
+    (Fragment username requirement).
+  - Premium-emoji fallback: on Telegram rejection the post is resent with
+    custom-emoji entities/icons stripped and the admin warned once in Persian.
+  - Recurring posts are drift-free (`next_occurrence` from the actual send
+    time); ephemeral posts auto-delete on the scheduler tick and expire.
+  - Storage: `channel_posts` + `post_templates` tables,
+    `channels.post_delete_previous` column (additive migration),
+    `/editchannel … post_delete_previous 1|0`.
+  - Persian strings in the new handlers are pending operator sign-off.
+- `docs/channel-posts-plan.md` — design for the above (status: IMPLEMENTED;
+  the six backlog ideas — ephemeral, edit-in-place, recurring, templates,
+  multi-channel, copy-last-post — were promoted into v1 by operator decision).
 
 - `scripts/devenv.sh` — development-environment helper with a `check` subcommand
   that verifies the whole environment is green in one shot (python version,
@@ -38,6 +58,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sandbox-rewind recovery ritual and the git safety policy.
 
 ### Changed
+
+- `requirements.txt`: aiogram floor raised `>=3.13,<4` → `>=3.31,<4` — the
+  channel-posts feature needs `InlineKeyboardButton.style` /
+  `icon_custom_emoji_id`, `DisabledButton`, `CopyTextButton` and
+  `LinkPreviewOptions` (verified on aiogram 3.31.0).
+- `bot/main.py`: a dedicated posts-scheduler background task
+  (`run_posts_scheduler`, 30 s tick) alongside the promo scheduler; both are
+  cancelled on shutdown.
 
 - **Test coverage raised from 68% to ~85%** (300 → 389 tests). New coverage:
   - `bot/main.py` — dispatcher wiring, startup/shutdown lifecycle, error

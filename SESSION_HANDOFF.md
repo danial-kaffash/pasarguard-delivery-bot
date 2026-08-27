@@ -1,6 +1,44 @@
-# Session Handoff — Docs & tooling: devenv gate, coverage 68→85%, changelog, lint recovery; offer-del payload fix; git safety policy + rewind ritual
+# Session Handoff — Channel-posts feature (v1); devenv gate, coverage, changelog, lint recovery; offer-del fix; git safety + rewind ritual
 
-**Updated:** 2026-08-27 (Asia/Tehran) — this checkout adds the **`scripts/devenv.sh` gate** (check/setup/update/lint/test), the **coverage gate at 80%** with the coverage raised **68% → ~85%** (300 → 389 tests), the **`CHANGELOG.md`**, the **session-handoff document** (this file, Puploader format), the **whole-repo lint recovery** (~200 drifted ruff findings fixed — lint had silently rotted because CI was never enabled), the **`offer_del` malformed-payload fix** (with the regression test demonstrated against the old code), and the **git safety policy** (`scripts/git-safety.sh` config + hooks; no rebase/squash/force-push, session branch fast-forward only) together with the **sandbox-rewind recovery ritual** (a rewind happened live during this session and was recovered with it):
+**Updated:** 2026-08-27 (Asia/Tehran) — latest slice: the **channel-posts feature (v1)** (`/newpost` wizard, `/posts` management, `/checkpremium`, 30 s posts scheduler; all six backlog ideas promoted into v1 by operator decision). Previously: the **`scripts/devenv.sh` gate** (check/setup/update/lint/test), the **coverage gate at 80%**, the **`CHANGELOG.md`**, the **session-handoff document** (this file, Puploader format), the **whole-repo lint recovery** (~200 drifted ruff findings), the **`offer_del` malformed-payload fix**, and the **git safety policy** (`scripts/git-safety.sh` config + hooks; no rebase/squash/force-push, session branch fast-forward only) with the **sandbox-rewind recovery ritual**:
+
+- **Channel posts v1 (2026-08-27, latest):** design doc first
+  (`docs/channel-posts-plan.md`, committed as DRAFT, then updated to
+  IMPLEMENTED after the operator promoted all six backlog ideas — ephemeral
+  posts, edit-published-in-place, recurring schedules, templates,
+  multi-channel send, copy-last-post — into v1). Landed:
+  - `storage/db.py` — `channel_posts` + `post_templates` tables,
+    `channels.post_delete_previous` (additive `ALTER TABLE` migration),
+    full CRUD incl. due/recurring/expired scans and `create_channel`/
+    `update_channel` support for the new field.
+  - `services/posts.py` — button model → keyboard (native styles, URL /
+    disabled / copy actions, premium-emoji icons with UTF-16-safe label
+    extraction), entities round-trip (no parse_mode, `LinkPreviewOptions`),
+    `send_post` (delete-previous → send → premium-fallback retry → pin →
+    expiry stamp), `edit_published_post`, Tehran (+03:30, no DST)
+    `next_occurrence` drift-free recurrence, `dispatch_due_posts` one-scan
+    tick (due one-shot + due recurring + expired ephemeral),
+    `run_posts_scheduler`, `send_and_record`, `send_preview`.
+  - `bot/handlers/posts.py` — full FSM wizard (channel multi-picker with
+    access guards → content → button loop → layout → options → schedule →
+    preview → confirm), `/posts` management (send now / cancel / reschedule
+    / edit published / copy as new / delete), `/checkpremium` echo
+    diagnostic, PostsCB callbacks; every pact/plist/pview callback
+    re-checks channel access.
+  - `bot/main.py` — posts router + dedicated posts-scheduler task
+    (cancelled on shutdown; lifecycle test extended).
+  - `bot/handlers/panel.py` — «📝 پست‌ها» channel-menu entry → posts view
+    (with back button); `bot/handlers/admin.py` — `/editchannel` gains
+    `post_delete_previous`; `requirements.txt` — aiogram floor
+    `>=3.31,<4` (needed for button `style`/`icon_custom_emoji_id`,
+    `DisabledButton`, `CopyTextButton`; verified on 3.31.0).
+  - Tests: `tests/test_posts_service.py` (34) +
+    `tests/test_posts_handlers.py` (44); suite 389 → 467 passed, coverage
+    82% (gate 80%). The handler suite caught a real bug pre-merge
+    (`on_confirm` read `scheduled_at` while the wizard stores `sched_at` —
+    scheduled confirms silently created nothing).
+  - **Persian strings in the new handlers are pending operator sign-off**
+    (standing rule).
 
 - **Git safety policy + sandbox-rewind ritual (2026-08-27, new):** the sandbox
   reset local history to the pre-session base mid-session — HEAD fell back to
@@ -71,7 +109,11 @@
    original design docs (historical; README wins on conflict)
 4. `scripts/devenv.sh` + `scripts/git-safety.sh` — the gate and the git policy
 
-## Session work (published commits through `265e329`)
+## Session work
+
+Session 4 (channel posts v1) — plan doc (`docs/channel-posts-plan.md`,
+commit `38bb90e`) followed by the implementation commit (see `git log
+origin/arena/01a042b5-pasarguard-delivery-bot`). Earlier sessions:
 
 ```
 265e329 style: reformat python code blocks in MULTI_TENANT_PLAN.md
@@ -79,8 +121,10 @@ b2668cc docs: add session handoff, changelog, devenv.sh check; update CI templat
 effc723 test: raise coverage 68%→85% (300→389 tests), add pytest-cov gate at 80%
 ```
 
-DB migrations: none (SQLite schema is created at boot by `storage/db.py`;
-`bot/migration.py` only seeds from `.env` on first run).
+DB migrations: **additive, automatic** — `channels.post_delete_previous` +
+`channel_posts` + `post_templates` are created at boot by `storage/db.py`
+(`_migrate` is idempotent; existing databases gain the column via a guarded
+`ALTER TABLE`, nothing to run by hand).
 
 ## Git safety policy (enforced, do not disable)
 
@@ -121,7 +165,7 @@ venv, broken deps, and an uninstalled git-safety policy. Latest full gate
 scripts/devenv.sh check
 ✓ python3 >= 3.11   ✓ .venv   ✓ deps   ✓ pip check   ! .env (warn-only)
 ✓ ruff check        ✓ ruff format --check
-✓ pytest — coverage 85% (gate: 80%)   → 389 passed, 84.73%
+✓ pytest — coverage 82% (gate: 80%)   → 467 passed, 82.33%
 ✓ git safety (config + hooks)
 ```
 
@@ -129,12 +173,16 @@ scripts/devenv.sh check
 
 - **CI is intentionally not used** (operator decision). The gate
   (`scripts/devenv.sh check`) runs locally before every commit instead.
-- **Coverage gaps** (biggest remaining): `bot/handlers/panel.py` FSM wizard
-  inputs, `bot/handlers/admin.py` error branches (~75%), `bot/smoke.py` (0% —
-  diagnostic script; counted honestly, not excluded).
+- **Coverage gaps** (biggest remaining): `bot/handlers/posts.py` menu-only
+  wizard branches (e.g. `on_option_toggle` between-steps), `bot/handlers/
+  panel.py` FSM wizard inputs, `bot/handlers/admin.py` error branches,
+  `bot/smoke.py` (0% — diagnostic script; counted honestly, not excluded).
 - **Gate ratchet:** raise `--cov-fail-under` from 80 toward 85 once stable.
+- **Channel-posts follow-ups:** template browsing/picking UI (templates are
+  written by the wizard toggle but cannot yet start a new post), published
+  media swap needs delete+repost, media groups (albums) unsupported.
 - Persian strings are user-facing; do not reword them without operator
-  sign-off.
+  sign-off — the new posts handlers' Persian is **not yet signed off**.
 - `bot/smoke.py` needs a real panel; it is the only intentionally untested
   runtime path.
 
@@ -177,7 +225,7 @@ a floor, not a ceiling — new code lands with tests.
 
 | Thing | State |
 |---|---|
-| Tests | **389 passed**, coverage **~85%** (gate: 80%) |
+| Tests | **467 passed**, coverage **82%** (gate: 80%) |
 | Lint | `ruff check .` + `ruff format --check .` — green |
 | CI | Intentionally not used — local gate before every commit |
 | Deployment | Docker / docker-compose (bot only, SQLite on a volume) |
@@ -185,8 +233,11 @@ a floor, not a ceiling — new code lands with tests.
 
 ### Session history (condensed)
 
-- **Session 3 — 2026-08-27 — docs/tooling/coverage + git safety** (this
-  handoff's entries above).
+- **Session 4 — 2026-08-27 — channel posts v1** (top entry above; plan doc
+  committed first, then implemented layer by layer: storage → service →
+  scheduler wiring → handlers → docs).
+- **Session 3 — 2026-08-27 — docs/tooling/coverage + git safety** (entries
+  below).
 - **Session 2 — 2026-08-27 — multi-tenant rework (PR #2):** per-channel
   settings in SQLite, roles, `/panel` UI, per-channel promo + pauses, offer
   groups, panel manager, encrypted panel passwords, backup/restore/export/
@@ -198,9 +249,12 @@ a floor, not a ceiling — new code lands with tests.
 ## Key files map
 
 ```
-bot/main.py            entrypoint: dispatcher, startup/shutdown, error handler
-bot/handlers/          admin (slash commands), panel (/panel UI), trial (/start),
+bot/main.py            entrypoint: dispatcher, startup/shutdown, error handler,
+                       promo + posts scheduler tasks
+bot/handlers/          admin (slash commands), panel (/panel UI), posts
+                       (/newpost, /posts, /checkpremium), trial (/start),
                        join_request, member_events, backup
+services/posts.py      channel-posts logic + 30 s scheduler
 services/trial.py      eligibility, offered-group validation, trial creation
 panel/                 PasarGuard API client + multi-panel manager
 storage/db.py          SQLite schema + all CRUD

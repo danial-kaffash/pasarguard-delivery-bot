@@ -1,8 +1,11 @@
 # Channel Posts — Manual & Scheduled Posting Plan
 
-> **Status: DRAFT — awaiting operator review before implementation**
+> **Status: IMPLEMENTED (v1) — shipped on branch `arena/01a042b5-pasarguard-delivery-bot`**
 > **Decisions locked (2026-08-27):** single media + caption · native button
 > colors · one-shot + recurring schedules · premium emojis with auto-fallback.
+> **Scope widened same day (operator call):** the six §8 backlog items below
+> were promoted into v1 — ephemeral posts, edit-published-in-place, recurring
+> schedules, templates, multi-channel send, copy-last-post.
 
 ---
 
@@ -21,6 +24,12 @@ channels through the bot — immediate or scheduled — with:
 - single media (photo / video / animation) with caption
 - scheduling: send now, one-shot at a datetime, or recurring daily/weekly
   at HH:MM (Asia/Tehran), all manageable after creation
+- **ephemeral posts** — auto-delete N hours (1/6/12/24) after sending
+- **edit published posts in place** (text/caption + buttons, media stays)
+- **multi-channel send** — one post fanned out to N channels in one go
+  (shared `group_id` ties the copies together)
+- **templates** — save any confirmed post as a reusable template
+- **copy-last-post** — clone any previous post as the draft for a new one
 
 Persian admin UX consistent with the rest of the bot.
 
@@ -46,8 +55,9 @@ Persian admin UX consistent with the rest of the bot.
 
 ### 3.1 Composing (`/newpost`, or «🆕 پست جدید» in the channel's `/panel` menu)
 
-1. **Channel picker** — only channels the caller manages (existing role
-   scoping: superadmin sees all, admins see assigned).
+1. **Channel picker** — multi-select, only channels the caller manages
+   (existing role scoping: superadmin sees all, admins see assigned).
+   `/newpost <tg_id>` preselects one and jumps straight to content.
 2. **Content** — the admin sends the post to the bot:
    - text message, or photo/video/animation **with caption**, or a forward
      (copied, forward header stripped);
@@ -62,24 +72,29 @@ Persian admin UX consistent with the rest of the bot.
 4. **Layout** — row spec, e.g. `2,1` = two buttons in the first row, one in
    the second (default: one per row).
 5. **Options** — delete-previous (default = channel's default) · pin ·
-   silent · link preview.
+   silent · link preview · **ephemeral** (off → 1h → 6h → 12h → 24h → off).
 6. **Schedule** — «ارسال فوری» / one-shot datetime / recurring
-   «هر روز»/«هر هفته» at HH:MM.
+   «هر روز»/«هر هفته» at HH:MM, plus a **💾 save-as-template** toggle.
 7. **Preview** — the bot renders the exact post to the admin privately
    (buttons included; premium emojis render privately even without Fragment
-   if the bot owner has Premium). Confirm → sent/scheduled. Cancel → draft
-   discarded (or kept as template — see §8).
+   if the bot owner has Premium). Confirm → sent/scheduled to every selected
+   channel (one `channel_posts` row per channel, shared `group_id`).
+   Cancel → discarded.
 
 ### 3.2 Managing (`/posts <tg_id>` + «📝 پست‌ها» in the panel)
 
 - List: scheduled / recurring / last published posts of the channel.
-- Scheduled: **send now**, reschedule, cancel.
-- Published: **edit in place** (caption/buttons via `editMessageText` /
-   `editMessageCaption` / `editMessageReplyMarkup` — no repost when only a
-   link changes), delete.
-- Copy a previous post as the starting point for a new one.
+- Scheduled/recurring/failed/sent: **send now** (recurring keeps its cadence,
+  next run recomputed drift-free from the send time).
+- Scheduled: reschedule, cancel.
+- Published: **edit in place** — new text/caption (entities preserved) +
+  buttons re-rendered via `editMessageText` / `editMessageCaption`; media
+  itself is not swapped (Telegram limitation).
+- **Copy as new** — any previous post becomes a preloaded draft, preview
+  shown immediately.
+- Delete (removes the channel message too when it still exists).
 
-### 3.3 Channels default (`/setchannel <tg_id> post_delete_previous on|off`)
+### 3.3 Channels default (`/editchannel <tg_id> post_delete_previous 1|0`)
 
 The delete-previous default for that channel; the wizard preselects it and
 every post can override. Also a toggle button in the channel's panel menu.
@@ -116,19 +131,49 @@ CREATE TABLE channel_posts (
   silent INTEGER NOT NULL DEFAULT 0,
   link_preview INTEGER NOT NULL DEFAULT 1,
 
+  group_id TEXT,                        -- shared across a multi-channel fan-out
+
   -- scheduling
-  status TEXT NOT NULL DEFAULT 'draft', -- draft|scheduled|recurring|sent|failed|cancelled
-  scheduled_at TEXT,                    -- UTC, one-shot
+  status TEXT NOT NULL DEFAULT 'draft',
+  -- draft|scheduled|recurring|sent|failed|cancelled|expired
+  scheduled_at TEXT,                    -- UTC; one-shot time, or NEXT run for recurring
   recurrence TEXT,                      -- none|daily|weekly
   recur_at TEXT,                        -- 'HH:MM' Tehran local
   last_sent_at TEXT,
+
+  -- ephemeral
+  ephemeral_hours REAL,
+  expires_at TEXT,                      -- UTC, set at send time; scan deletes the message
 
   -- delivery
   sent_at TEXT,
   tg_message_id INTEGER,
   error TEXT
 );
+
+-- new table (templates):
+CREATE TABLE post_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  created_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
+  entities_json TEXT,
+  media_type TEXT,
+  media_file_id TEXT,
+  buttons_json TEXT NOT NULL DEFAULT '[]',
+  delete_previous INTEGER NOT NULL DEFAULT 0,
+  pin INTEGER NOT NULL DEFAULT 0,
+  silent INTEGER NOT NULL DEFAULT 0,
+  link_preview INTEGER NOT NULL DEFAULT 1,
+  ephemeral_hours REAL
+);
 ```
+
+A scheduler tick (`services.posts.dispatch_due_posts`, every 30 s from a
+dedicated task in `bot/main.py`) does one scan: due one-shots → send,
+due recurring (scheduled_at ≤ now) → send + reschedule `next_occurrence`,
+expired ephemerals → delete message + mark `expired`.
 
 Schema evolution follows the existing pattern in `storage/db.py`
 (create-at-boot + additive `ALTER TABLE` guarded by column checks).
@@ -139,19 +184,26 @@ Schema evolution follows the existing pattern in `storage/db.py`
 
 ```
 bot/handlers/posts.py     /newpost wizard (FSM), /posts management,
-                          panel callbacks, /checkpremium
-services/posts.py         pure logic, fully unit-tested:
-                          - build_keyboard(buttons_json) → InlineKeyboardMarkup
+                          /checkpremium, PostsCB callbacks
+bot/handlers/panel.py     «📝 پست‌ها» entry in the channel menu → posts view
+bot/handlers/admin.py     /editchannel gains post_delete_previous
+services/posts.py         pure-ish logic, fully unit-tested:
+                          - build_keyboard(buttons) → InlineKeyboardMarkup
                             (style/action/icon mapping, row grouping)
                           - build_send_kwargs(post) → text/caption + entities
-                          - send_post(bot, channel, post) → delete-previous,
-                            send, premium-fallback retry, pin, record message id
-                          - strip_custom_emoji(entities, buttons) → fallback payload
-                          - next_run(post, now) → recurrence math (Tehran +03:30)
-                          - due_posts(db, now) → scan for the scheduler
-storage/db.py             channel_posts CRUD + channel default toggle
-bot/promo.py              run_scheduler loop gains a 30s due-post dispatch tick
-bot/main.py               register posts router
+                            (no parse_mode; LinkPreviewOptions)
+                          - extract_button_icon(text, entities) → UTF-16-safe
+                            premium-emoji extraction from button labels
+                          - send_post(bot, db, post, channel) → delete-previous,
+                            send, premium-fallback retry, pin, expiry stamp
+                          - edit_published_post(bot, post, channel)
+                          - next_occurrence(post, after) → Tehran +03:30 math
+                          - dispatch_due_posts / run_posts_scheduler (30 s tick)
+                          - send_and_record / send_preview helpers
+storage/db.py             channel_posts + post_templates CRUD,
+                          channels.post_delete_previous migration,
+                          create_channel/update_channel support
+bot/main.py               register posts router + posts-scheduler task
 requirements.txt          aiogram floor → >=3.31
 ```
 
@@ -172,6 +224,14 @@ requirements.txt          aiogram floor → >=3.31
 - **Restart recovery**: due-scan re-discovers scheduled posts from the DB;
   nothing lives only in memory. Partially-sent recurring posts re-send only
   after `last_sent_at` (idempotent per occurrence).
+- **Ephemeral on recurring posts**: expiry deletes the *last* message; the
+  post stays `recurring` and keeps its cadence (`tg_message_id`/`expires_at`
+  cleared until the next send).
+- **Multi-channel partial failure**: each channel's copy is independent —
+  one failing marks only that row `failed`; the result summary reports
+  per-channel outcomes.
+- **Edit published with premium emoji**: same fallback as send (strip +
+  retry); edit of the media itself is a Telegram limitation.
 
 ---
 
@@ -190,15 +250,20 @@ requirements.txt          aiogram floor → >=3.31
 
 ---
 
-## 8. Deferred ideas (brainstorm backlog)
+## 8. Backlog (post-v1 ideas)
 
-- **Ephemeral posts** — auto-delete N hours after sending (natural pair with
-  delete-previous; strong candidate for v1.1).
+Promoted into v1 on 2026-08-27 (operator decision): ~~ephemeral posts~~ ·
+~~edit published in place~~ · ~~recurring schedules~~ · ~~templates /
+reuse-last-post~~ · ~~multi-channel send~~ · ~~copy-last-post~~.
+
+Still deferred:
+
 - **Keep-last-N retention** per channel.
-- **Multi-channel send** — one post to N channels in one go.
-- **Saved templates** beyond "copy previous post".
 - Media groups (albums).
 - Button `pay` / Stars.
+- Template *browsing/picking* UI (templates are currently only written by
+  the wizard toggle; a "start from template" picker is future work).
+- Editing published **media** (swap photo/video) — needs delete + repost.
 
 ---
 

@@ -106,7 +106,7 @@ Every edit: tap button → type value → saved. No need to remember command syn
 | `/addchannel <tg_id>` | Register a Telegram channel (title fetched from Telegram) |
 | `/channels` | List all channels |
 | `/refreshchannels` | Re-fetch channel titles from Telegram for channels with empty titles |
-| `/editchannel <tg_id> <field> <value>` | Edit a channel field (title, trial_data_limit_gb, trial_days, on_hold_grace_days, allow_regrant_after_days, trial_max_member_age_days, join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent) |
+| `/editchannel <tg_id> <field> <value>` | Edit a channel field (title, trial_data_limit_gb, trial_days, on_hold_grace_days, allow_regrant_after_days, trial_max_member_age_days, join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent, post_delete_previous) |
 | `/removechannel <tg_id>` | Soft-delete a channel |
 | `/assign <user_id> <tg_id>` | Assign an admin to a channel |
 | `/unassign <user_id> <tg_id>` | Remove an admin from a channel |
@@ -145,8 +145,25 @@ These work **in the channel** (context auto-detected) or **in DM** with explicit
 | `/reset` | `/reset <user_id>` | `/reset <tg_id> <user_id>` |
 | `/stats` | `/stats` | `/stats <tg_id>` |
 | `/joinstats` | `/joinstats` | `/joinstats <tg_id>` |
+| `/newpost` | `/newpost` | `/newpost <tg_id>` |
+| `/posts` | `/posts` | `/posts <tg_id>` |
+| `/checkpremium` | — | `/checkpremium` |
 
 Trial setting fields for `/settrial`: `data_limit_gb`, `days`, `grace`, `regrant`
+
+### Channel posts (`/newpost`, `/posts`)
+
+Publish arbitrary posts through the bot — immediate, scheduled, or recurring
+(daily/weekly at HH:MM, Tehran time). The `/newpost` wizard walks through
+content (text / photo / video / animation / forward — formatting and premium
+emojis preserved), inline buttons (URL / no-op / copy-to-clipboard, native
+green/red/blue colors, premium-emoji icons), layout, options
+(delete-previous, pin, silent, link preview, ephemeral auto-delete 1–24h),
+schedule and a live preview before confirming. One post can fan out to
+several channels at once. `/posts` lists a channel's posts and can send now,
+cancel, reschedule, edit the published text in place, copy as new, or delete.
+Design details: `docs/channel-posts-plan.md`. `/checkpremium` checks whether
+this bot can send premium emojis (requires a Fragment username).
 
 ---
 
@@ -158,6 +175,7 @@ bot/
     admin.py          # slash commands (superadmin + channel-scoped)
     backup.py         # /backup, /export, /import
     panel.py          # inline management panel (/panel)
+    posts.py          # /newpost wizard, /posts management, /checkpremium
     trial.py          # /start → group select → trial delivery
     join_request.py   # channel join-request → trial → approve
     member_events.py  # join/leave tracking
@@ -171,6 +189,7 @@ panel/
 services/
   trial.py            # eligibility, trial creation, group validation
   channel_settings.py # Channel+Panel → settings adapter
+  posts.py            # channel-posts logic + 30s scheduler (send/edit/recurrence/expiry)
 storage/
   db.py               # SQLite schema + CRUD (panels, channels, users, grants, ...)
   crypto.py           # Fernet encryption for panel passwords

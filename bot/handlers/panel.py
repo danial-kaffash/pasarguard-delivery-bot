@@ -198,7 +198,10 @@ def build_channel_menu(
                 _btn("🔗 درخواست‌ها", "view", "join", ch.id),
                 _btn("🌐 گروه‌ها", "view", "offer", ch.id),
             ],
-            [_btn("📊 آمار", "view", "stats", ch.id)],
+            [
+                _btn("📊 آمار", "view", "stats", ch.id),
+                _btn("📝 پست‌ها", "view", "posts", ch.id),
+            ],
         ]
     )
 
@@ -398,6 +401,15 @@ async def on_view(
                 f"⏸ وضعیت: {status}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("ch", ch.id)]]),
             )
+
+    elif target == "posts":
+        from ..handlers.posts import render_posts_view
+
+        ch = await store.get_channel(db, tid)
+        if ch:
+            text, kb = await render_posts_view(db, ch)
+            kb.inline_keyboard.append([_back_btn("ch", ch.id)])
+            await callback.message.edit_text(text, reply_markup=kb)
 
     elif target == "backup_menu":
         await callback.message.edit_text(

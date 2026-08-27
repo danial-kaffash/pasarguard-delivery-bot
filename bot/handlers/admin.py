@@ -11,6 +11,7 @@ Channel-scoped commands (superadmin or channel admin):
   /settrial  /setjoindelay  /setmaxage
   /groups  /offergroups  /setoffer  /deloffer  /reorder  /clearoffers
   /reset  /stats  /joinstats
+  /newpost  /posts  /checkpremium  (channel-posts feature)
 
 Channel context:
   - In a channel/group chat: inferred from event.chat.id
@@ -403,7 +404,8 @@ async def cmd_editchannel(
             "📝 کاربرد: <code>/editchannel -100123 title عنوان جدید</code>\n"
             "فیلدها: title, trial_data_limit_gb, trial_days, on_hold_grace_days, "
             "allow_regrant_after_days, trial_max_member_age_days, "
-            "join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent"
+            "join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent, "
+            "post_delete_previous"
         )
         return
     tg_id = int(args[0])
@@ -413,7 +415,7 @@ async def cmd_editchannel(
         await message.answer(f"❌ کانال <code>{tg_id}</code> یافت نشد.")
         return
     # Type coercion.
-    if field in ("promo_pin", "promo_silent"):
+    if field in ("promo_pin", "promo_silent", "post_delete_previous"):
         value = value.lower() in ("1", "true", "yes")
     elif field in (
         "trial_days",
