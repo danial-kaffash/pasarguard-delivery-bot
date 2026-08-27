@@ -21,6 +21,8 @@ def make_settings(**overrides):
         "promo_pin": True,
         "promo_silent": True,
         "owner_tg_ids": [1],
+        "trial_max_member_age_days": 0,
+        "join_approval_delay_seconds": 10,
     }
     base.update(overrides)
     settings = SimpleNamespace(**base)
@@ -123,3 +125,64 @@ class FakeMessage:
     @property
     def texts(self) -> list[str]:
         return [t for t, _ in self.replies]
+
+
+class FakeChatJoinRequest:
+    """Minimal stand-in for an aiogram ChatJoinRequest; records approve/decline calls."""
+
+    def __init__(self, chat_id: int, user_id: int, username: str = "testuser", first_name: str = "Test"):
+        self.chat = SimpleNamespace(id=chat_id)
+        self.from_user = SimpleNamespace(id=user_id, username=username, first_name=first_name)
+        self.date = None
+        self.bio = None
+        self.invite_link = None
+        self.approved = False
+        self.declined = False
+
+    async def approve(self):
+        self.approved = True
+        return True
+
+    async def decline(self):
+        self.declined = True
+        return True
+
+
+class FakeBotWithDM(FakeBot):
+    """FakeBot that also records DMs sent to users."""
+
+    def __init__(self, username: str = "TestBot"):
+        super().__init__(username)
+        self.dms: list[tuple[int, str]] = []
+
+    async def send_message(self, chat_id: int, text: str, **kwargs):
+        self._next_id += 1
+        self.dms.append((chat_id, text))
+        # Also store in sent for compatibility
+        self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        return SimpleNamespace(message_id=self._next_id)
+
+
+class FakePanelManager:
+    """Minimal PanelManager stand-in that returns FakePanel instances."""
+
+    def __init__(self, panels: dict[int, FakePanel] | None = None):
+        self._panels: dict[int, FakePanel] = panels or {}
+        self._default = FakePanel()
+
+    def register(self, panel_id: int, panel: FakePanel) -> None:
+        self._panels[panel_id] = panel
+
+    def get_client(self, panel) -> FakePanel:
+        """Accepts a Panel object or int id."""
+        pid = panel.id if hasattr(panel, "id") else int(panel)
+        return self._panels.get(pid, self._default)
+
+    async def list_groups(self, panel, *, force: bool = False) -> dict[int, str]:
+        """Return groups for a panel as {id: name}."""
+        client = self.get_client(panel)
+        groups = await client.list_groups_simple()
+        return {g.id: g.name for g in groups}
+
+    async def close_all(self) -> None:
+        pass

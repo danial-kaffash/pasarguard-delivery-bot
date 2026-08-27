@@ -1,6 +1,6 @@
-"""The 5 GB trial flow (M4):
+"""The 5 GB trial flow (M4) — now multi-tenant aware.
 
-/start → eligibility check → multi-select group keyboard → confirm →
+/start → resolve channel → eligibility check → group picker → confirm →
 panel create_user (on-hold) → deliver subscription URL → record grant.
 """
 
@@ -17,10 +17,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from panel.client import PasarGuardApiClient
 from panel.exceptions import PanelError
+from panel.manager import PanelManager
 from services import trial as trial_service
+from services.channel_settings import ChannelSettings
 from storage import db as store
+from storage.db import Channel, ChannelOfferGroup
 
 from .. import texts
 from ..keyboards import GroupCB, build_selection_keyboard
@@ -40,13 +42,67 @@ class TrialForm(StatesGroup):
 
 def _display_name(message_or_user) -> str:
     user = getattr(message_or_user, "from_user", message_or_user)
-    # Names are user-controlled input — escape before placing into HTML text.
     return html_escape(user.first_name or "دوست عزیز")
 
 
-def _labels_for(ids: list[int], offers: list[store.OfferGroup]) -> str:
-    labels = {o.id: o.label for o in offers}
-    return "، ".join(labels.get(i, f"#{i}") for i in ids)
+def _labels_for(ids: list[int], offers: list[ChannelOfferGroup]) -> str:
+    labels = {(o.panel_id, o.group_id): o.label for o in offers}
+    # Legacy: ids is a flat list of group_ids.  Match on group_id alone.
+    label_map = {o.group_id: o.label for o in offers}
+    return "، ".join(label_map.get(i, f"#{i}") for i in ids)
+
+
+async def _resolve_channel_from_start(
+    message: Message, db: aiosqlite.Connection
+) -> Channel | None:
+    """Resolve the target channel from the /start deep-link payload.
+
+    Payload format: ``join`` or ``join_<tg_channel_id>``.
+    Falls back to the single active channel if only one exists.
+    """
+    parts = (message.text or "").split(maxsplit=1)
+    payload = parts[1].strip() if len(parts) > 1 else ""
+
+    channel = None
+
+    # Try explicit channel id from payload: "join_-1001234567890"
+    if payload.startswith("join_"):
+        try:
+            tg_id = int(payload.removeprefix("join_"))
+            channel = await store.get_channel_by_tg_id(db, tg_id)
+        except ValueError:
+            pass
+
+    # Fallback: plain "join" with exactly one active channel
+    if channel is None:
+        channels = await store.list_channels(db, active_only=True)
+        if len(channels) == 1:
+            channel = channels[0]
+
+    return channel
+
+
+async def _resolve_channel_and_settings(
+    message: Message, db: aiosqlite.Connection, panel_manager: PanelManager,
+) -> tuple[Channel, ChannelSettings] | None:
+    """Resolve channel + settings from /start.  Returns None if unresolved."""
+    channel = await _resolve_channel_from_start(message, db)
+    if channel is None:
+        return None
+
+    # For single-select trials, we need at least one offer group to know
+    # which panel to use.  Use the first offer group's panel as the
+    # "primary" panel for eligibility checks and existing-trial lookups.
+    offers = await store.list_channel_offer_groups(db, channel.id)
+    if not offers:
+        # No offer groups — still return channel so caller can show a message.
+        return None
+
+    panel = await store.get_panel(db, offers[0].panel_id)
+    if panel is None:
+        return None
+
+    return channel, ChannelSettings(channel, panel)
 
 
 # ── /start — eligibility + show the group picker ────────────────────────────
@@ -58,8 +114,7 @@ async def on_start(
     state: FSMContext,
     bot: Bot,
     db: aiosqlite.Connection,
-    settings,
-    panel: PasarGuardApiClient,
+    panel_manager: PanelManager,
 ) -> None:
     if message.chat.type != "private":
         await message.answer(texts.PRIVATE_ONLY)
@@ -72,13 +127,28 @@ async def on_start(
     user = message.from_user
     name = _display_name(message)
 
-    # "New members only" gate (0 = disabled): the user's recorded channel
-    # join must be within the configured window; unknown age fails the gate.
+    # Resolve channel and settings from the deep-link.
+    resolved = await _resolve_channel_and_settings(message, db, panel_manager)
+    if resolved is None:
+        # Check if there are any channels at all (to give a better error).
+        channels = await store.list_channels(db, active_only=True)
+        if not channels:
+            await message.answer(texts.NO_GROUPS_AVAILABLE)
+        elif len(channels) > 1:
+            await message.answer("لطفاً از لینک کانال مورد نظر خود استفاده کنید. 🙂")
+        else:
+            # One channel but no offer groups.
+            await message.answer(texts.NO_GROUPS_AVAILABLE)
+        return
+
+    channel, settings = resolved
+
+    # "New members only" gate.
     max_age = await trial_service.get_max_member_age_days(
         db, settings.trial_max_member_age_days
     )
     if max_age > 0:
-        join_at = await store.get_first_join_at(db, settings.channel_id, user.id)
+        join_at = await store.get_first_join_at(db, channel.tg_channel_id, user.id)
         if not trial_service.is_membership_recent_enough(join_at, max_age):
             await message.answer(texts.NOT_NEW_MEMBER.format(days=f"{max_age:g}"))
             return
@@ -88,11 +158,15 @@ async def on_start(
 
     if not eligibility.eligible and eligibility.reason == "active":
         sub_url = None
-        try:
-            panel_user = await panel.get_user(grant.panel_username)
-            sub_url = panel_user.subscription_url or None
-        except PanelError as exc:
-            logger.warning("Could not re-fetch existing trial %s: %s", grant.panel_username, exc)
+        # Try to re-fetch the sub URL from whatever panel the grant was on.
+        if grant and grant.panel_username:
+            # Find the panel through the grant's channel_id or fallback.
+            panel = panel_manager.get_client(settings.panel)
+            try:
+                panel_user = await panel.get_user(grant.panel_username)
+                sub_url = panel_user.subscription_url or None
+            except PanelError as exc:
+                logger.warning("Could not re-fetch existing trial %s: %s", grant.panel_username, exc)
         if sub_url:
             await message.answer(texts.ALREADY_GRANTED.format(name=name, sub_url=sub_url))
         else:
@@ -105,13 +179,16 @@ async def on_start(
         )
         return
 
-    offers, _stale = await trial_service.get_offered_groups(panel, db)
+    # Get channel offer groups validated against the panels.
+    offers, _stale = await trial_service.get_channel_offered_groups(
+        panel_manager, db, channel.id,
+    )
     if not offers:
         await message.answer(texts.NO_GROUPS_AVAILABLE)
         return
 
     await state.set_state(TrialForm.selecting)
-    await state.update_data(selected=[])
+    await state.update_data(selected=[], channel_id=channel.id)
     await message.answer(
         texts.GREETING.format(name=name, gb=settings.trial_data_limit_gb),
         reply_markup=build_selection_keyboard(offers, selected=set()),
@@ -126,7 +203,7 @@ async def toggle_group(
     callback: CallbackQuery,
     state: FSMContext,
     db: aiosqlite.Connection,
-    panel: PasarGuardApiClient,
+    panel_manager: PanelManager,
     callback_data: GroupCB,
 ) -> None:
     data = await state.get_data()
@@ -134,7 +211,13 @@ async def toggle_group(
     selected ^= {callback_data.gid}
     await state.update_data(selected=sorted(selected))
 
-    offers, _stale = await trial_service.get_offered_groups(panel, db)
+    channel_id = data.get("channel_id")
+    if channel_id:
+        offers, _stale = await trial_service.get_channel_offered_groups(
+            panel_manager, db, channel_id,
+        )
+    else:
+        offers = []
     await callback.message.edit_reply_markup(
         reply_markup=build_selection_keyboard(offers, selected=selected)
     )
@@ -154,12 +237,12 @@ async def confirm_selection(
     state: FSMContext,
     bot: Bot,
     db: aiosqlite.Connection,
-    settings,
-    panel: PasarGuardApiClient,
+    panel_manager: PanelManager,
 ) -> None:
     user = callback.from_user
     data = await state.get_data()
     selected: list[int] = sorted(data.get("selected", []))
+    channel_db_id = data.get("channel_id")
 
     if not selected:
         await callback.answer(texts.SELECT_HINT, show_alert=True)
@@ -171,7 +254,36 @@ async def confirm_selection(
         await callback.answer()
         return
 
-    # Re-check eligibility at confirm time (guards against races/double taps).
+    # Resolve channel and settings.
+    channel = await store.get_channel(db, channel_db_id) if channel_db_id else None
+    if channel is None:
+        await state.clear()
+        await callback.message.edit_text(texts.ERROR_TRY_AGAIN)
+        await callback.answer()
+        return
+
+    # Find the panel for the selected group.
+    channel_offers = await store.list_channel_offer_groups(db, channel.id)
+    selected_offer = next(
+        (o for o in channel_offers if o.group_id in selected), None
+    )
+    if selected_offer is None:
+        await state.clear()
+        await callback.message.edit_text(texts.ERROR_TRY_AGAIN)
+        await callback.answer()
+        return
+
+    panel_row = await store.get_panel(db, selected_offer.panel_id)
+    if panel_row is None:
+        await state.clear()
+        await callback.message.edit_text(texts.ERROR_TRY_AGAIN)
+        await callback.answer()
+        return
+
+    settings = ChannelSettings(channel, panel_row)
+    panel = panel_manager.get_client(panel_row)
+
+    # Re-check eligibility at confirm time.
     grant = await store.get_latest_grant(db, user.id)
     if not trial_service.check_eligibility(grant, settings).eligible:
         await state.clear()
@@ -206,11 +318,15 @@ async def confirm_selection(
         group_ids=selected,
         data_limit=settings.trial_data_limit_bytes,
         expire_at=expire_at,
-        source_chat_id=None,
+        source_chat_id=channel.tg_channel_id,
+        source="start",
+        channel_id=channel.id,
     )
     await state.clear()
 
-    offers, _stale = await trial_service.get_offered_groups(panel, db)
+    offers, _stale = await trial_service.get_channel_offered_groups(
+        panel_manager, db, channel.id,
+    )
     if panel_user.subscription_url:
         await callback.message.answer(
             texts.DELIVERY.format(
@@ -224,4 +340,5 @@ async def confirm_selection(
     else:
         logger.warning("Panel returned no subscription_url for %s", username)
         await callback.message.answer(texts.DELIVERY_NO_SUB_URL.format(username=username))
-    logger.info("Granted trial %s to tg_id=%s (groups=%s)", username, user.id, selected)
+    logger.info("Granted trial %s to tg_id=%s (groups=%s, channel=%s)",
+                username, user.id, selected, channel.tg_channel_id)

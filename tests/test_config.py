@@ -54,11 +54,11 @@ def test_env_var_override(monkeypatch):
     assert s.promo_interval_hours == 12.0
 
 
-def test_missing_required_panel_settings_raises(monkeypatch):
-    import pydantic
-
-    # Ensure no leakage from a real .env / environment.
+def test_missing_panel_settings_defaults_to_empty(monkeypatch):
+    # Panel settings are now optional (managed through the bot).
     for var in ("PANEL_BASE_URL", "PANEL_ADMIN_USERNAME", "PANEL_ADMIN_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
-    with pytest.raises(pydantic.ValidationError):
-        Settings(_env_file=None)
+    s = Settings(_env_file=None)
+    assert s.panel_base_url == ""
+    assert s.panel_admin_username == ""
+    assert s.panel_admin_password == ""

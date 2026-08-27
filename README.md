@@ -1,136 +1,235 @@
-# pasarguard-greet-bot
-# pasarguard-greet-bot
+# pasarguard-delivery-bot
 
-A Telegram bot that markets a **free 5 GB test** for your PasarGuard xray panel:
+A **multi-tenant** Telegram bot that delivers free trial xray configs from your PasarGuard panels. Manage multiple panels and channels from a single bot instance.
 
-- posts a **pinned promo message** (owner-editable, every N hours, silent — no pings,
-  no per-join posts, no mentions) into your Telegram channel;
-- when a user taps the button and presses **Start**, offers a **multi-select of
-  panel groups** (curated by the owner, with custom Persian labels);
-- creates a **5 GB on-hold test account** on the panel via its REST API and replies
-  with the **subscription URL**;
-- tracks channel joins/leaves and exposes everything through **owner commands**.
+- Manages **multiple PasarGuard panels** and **multiple Telegram channels**
+- Posts a **pinned promo message** (per-channel, owner-editable, silent) in each channel
+- When a user taps the button and presses **Start**, offers **server/location choices** (curated per-channel, with friendly labels like "🇳🇱 هلند")
+- When a user **requests to join** the channel, delivers a trial config via DM first, then approves after a configurable delay
+- Creates a **trial account** on the correct panel and delivers the **subscription URL**
+- **Role-based access**: superadmins control everything, admins manage their assigned channels
+- **Inline management panel** (`/panel`) — button-based UI for all settings
+- Tracks channel joins/leaves and exposes everything through commands
 
-Full design: see **[PLAN.md](PLAN.md)**.
+## Quick start
 
-## Status — all milestones done ✅
+### 1. Environment variables
 
-| Milestone | Description | State |
-|---|---|---|
-| M1 | Skeleton: config, logging, Docker | ✅ |
-| M2 | PasarGuard API client (typed, auto re-auth) + tests | ✅ |
-| M3 | Channel promo scheduler (pinned post) | ✅ |
-| M4 | Trial flow: /start → group select → 5 GB account → sub URL | ✅ |
-| M5 | Owner commands, join/leave stats, global error handling, setup guide | ✅ |
+```bash
+cp .env.example .env
+```
+
+Edit `.env` — only these are required:
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
+OWNER_TG_IDS=your_telegram_id
+DB_ENCRYPTION_KEY=                    # generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Everything else (panels, channels, trial settings) is managed through the bot at runtime.
+
+### 2. Channel setup (one-time, in Telegram)
+
+For **each** channel you want to manage:
+1. Add the bot as **admin** with these rights:
+   - *Post Messages*
+   - *Pin Messages*
+   - *Invite Users via Link* (for approving join requests)
+2. Enable **"Approve New Members"** in channel settings (Privacy → who can send requests)
+
+### 3. Panel setup
+
+Create a dedicated admin on each PasarGuard panel (e.g. `greet-bot`) with permissions: **users: create/read** and **groups: read**.
+
+### 4. Run
+
+```bash
+# Docker
+docker compose up -d --build
+
+# Development
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+python -m bot.main
+```
+
+### 5. Configure via the bot
+
+After starting, DM the bot:
+
+```
+/addpanel NL https://nl.example.com admin password123
+/addpanel TR https://tr.example.com admin password456
+/addchannel -1001234567890
+/addchannel -1009876543210
+/setoffer -1001234567890 1 2 🇳🇱 هلند
+/setoffer -1001234567890 2 5 🇹🇷 ترکیه
+```
+
+Channel titles are fetched from Telegram automatically. If a channel has no title (e.g. migrated from old config), run `/refreshchannels` or restart the bot.
+
+Done. Users can now get trials from your channel.
+
+---
+
+## Inline management panel (`/panel`)
+
+Type `/panel` in DM to the bot. Shows a button-based UI:
+
+```
+📺 Channel list → tap a channel
+├─ ⏸ Pause / ▶️ Resume
+├─ 📢 Promo → edit text, interval, toggle pin/silent, post now
+├─ 🎁 Trials → edit data limit, days, grace, regrant, max age, reset user
+├─ 🔗 Join Requests → toggle pause, edit delay
+├─ 🌐 Offer Groups → view, add (wizard), remove, clear all
+└─ 📊 Stats
+
+🖥 Panels → manage all panels (superadmin)
+💾 Backup → download database or export config (superadmin)
+```
+
+Every edit: tap button → type value → saved. No need to remember command syntax.
+
+---
+
+## Superadmin commands
+
+| Command | Description |
+|---------|-------------|
+| `/panel` | Open the inline management panel |
+| `/addpanel <name> <url> <user> <pass>` | Register a PasarGuard panel |
+| `/panels` | List all panels |
+| `/editpanel <id> <field> <value>` | Edit a panel field (name, base_url, admin_password, verify_ssl, timeout_seconds, protocols, auto_delete_days) |
+| `/removepanel <id>` | Soft-delete a panel |
+| `/addchannel <tg_id>` | Register a Telegram channel (title fetched from Telegram) |
+| `/channels` | List all channels |
+| `/refreshchannels` | Re-fetch channel titles from Telegram for channels with empty titles |
+| `/editchannel <tg_id> <field> <value>` | Edit a channel field (title, trial_data_limit_gb, trial_days, on_hold_grace_days, allow_regrant_after_days, trial_max_member_age_days, join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent) |
+| `/removechannel <tg_id>` | Soft-delete a channel |
+| `/assign <user_id> <tg_id>` | Assign an admin to a channel |
+| `/unassign <user_id> <tg_id>` | Remove an admin from a channel |
+| `/promote <user_id> <role>` | Promote user to admin/superadmin |
+| `/demote <user_id>` | Demote user to regular user |
+| `/users` | List all users with roles |
+| `/sysstats` | System-wide stats |
+| `/backup` | Send the SQLite database file as a document |
+| `/restore` | Reply to a .db backup file with `/restore` — replaces database and restarts bot |
+| `/export` | Export configuration as portable JSON (panels, channels, users, offer groups) |
+| `/import` | Reply to a JSON export file with `/import` to restore configuration |
+
+## Channel-scoped commands
+
+These work **in the channel** (context auto-detected) or **in DM** with explicit channel ID.
+
+| Command | In channel | In DM |
+|---------|-----------|-------|
+| `/pause` | `/pause` | `/pause <tg_id>` |
+| `/resume` | `/resume` | `/resume <tg_id>` |
+| `/pausejoins` | `/pausejoins` | `/pausejoins <tg_id>` |
+| `/resumejoins` | `/resumejoins` | `/resumejoins <tg_id>` |
+| `/setpromo` | `/setpromo <text>` | `/setpromo <tg_id> <text>` |
+| `/setinterval` | `/setinterval <hours>` | `/setinterval <tg_id> <hours>` |
+| `/promonow` | `/promonow` | `/promonow <tg_id>` |
+| `/getpromo` | `/getpromo` | `/getpromo <tg_id>` |
+| `/settrial` | `/settrial <field> <value>` | `/settrial <tg_id> <field> <value>` |
+| `/setjoindelay` | `/setjoindelay <seconds>` | `/setjoindelay <tg_id> <seconds>` |
+| `/setmaxage` | `/setmaxage <days>` | `/setmaxage <tg_id> <days>` |
+| `/groups` | `/groups` | `/groups <tg_id>` |
+| `/offergroups` | `/offergroups` | `/offergroups <tg_id>` |
+| `/setoffer` | `/setoffer <panel_id> <group_id> <label>` | `/setoffer <tg_id> <panel_id> <group_id> <label>` |
+| `/deloffer` | `/deloffer <panel_id> <group_id>` | `/deloffer <tg_id> <panel_id> <group_id>` |
+| `/reorder` | `/reorder <p>:<g>,<p>:<g>,...` | `/reorder <tg_id> <p>:<g>,...` |
+| `/clearoffers` | `/clearoffers` | `/clearoffers <tg_id>` |
+| `/reset` | `/reset <user_id>` | `/reset <tg_id> <user_id>` |
+| `/stats` | `/stats` | `/stats <tg_id>` |
+| `/joinstats` | `/joinstats` | `/joinstats <tg_id>` |
+
+Trial setting fields for `/settrial`: `data_limit_gb`, `days`, `grace`, `regrant`
+
+---
+
+## Architecture
+
+```
+bot/
+  handlers/
+    admin.py          # slash commands (superadmin + channel-scoped)
+    backup.py         # /backup, /export, /import
+    panel.py          # inline management panel (/panel)
+    trial.py          # /start → group select → trial delivery
+    join_request.py   # channel join-request → trial → approve
+    member_events.py  # join/leave tracking
+  promo.py            # multi-channel promo scheduler
+  pause.py            # pause switches (global + per-channel)
+  config.py           # pydantic settings from .env
+panel/
+  client.py           # PasarGuard API client (httpx, auto re-auth)
+  manager.py          # multi-panel client manager (lazy cache)
+  models.py           # pydantic models
+services/
+  trial.py            # eligibility, trial creation, group validation
+  channel_settings.py # Channel+Panel → settings adapter
+storage/
+  db.py               # SQLite schema + CRUD (panels, channels, users, grants, ...)
+  crypto.py           # Fernet encryption for panel passwords
+```
+
+---
 
 ## How it works
 
 ```
-Every PROMO_INTERVAL_HOURS (default 6h):
-  channel post replaced → your predefined Persian message pinned silently,
-  with a "🎁 دریافت تست ۵ گیگ" button → https://t.me/<bot>?start=join
+Superadmin adds panels and channels via /addpanel, /addchannel, /assign.
+Offer groups are linked via /setoffer — each group maps to a panel.
 
-User taps button → /start in bot:
-  eligibility check (one trial per user, 30-day re-grant cooldown)
-  → multi-select keyboard of your curated groups (✅ toggles)
-  → confirm → POST /api/user on the panel (5 GB, on-hold: 3-day usage from
-    first connection, 7 days to activate, vless, auto-delete day 11)
-  → bot replies with the subscription URL + trial facts
+Channel promo runs automatically (per-channel interval):
+  message pinned silently with deep-link button
+
+User taps button → /start:
+  bot resolves channel from deep-link
+  shows offer group buttons (from all linked panels, friendly labels)
+  user picks one → trial created on that panel → sub URL delivered
+
+User sends join request:
+  bot resolves channel from DB
+  creates trial → DMs sub link → approves after delay
+  user ID recorded — no duplicate trials
 ```
 
-## Layout
+## Two independent pause switches
 
-```
-bot/            # Telegram bot: config, logging, entrypoint, promo scheduler
-  handlers/     # trial flow (M4), admin commands (M5), chat_member tracking (M5)
-panel/          # PasarGuardAPI client: models, exceptions, async client
-services/       # trial business logic (eligibility, payload builder, caching)
-storage/        # SQLite (aiosqlite): settings, promo state, offer groups,
-                # trial grants, chat members, member events
-texts/          # default promo message (Persian)
-tests/          # 68 tests (respx-mocked HTTP, FakeBot/FakePanel, real SQLite)
-data/           # runtime data (SQLite DB — git-ignored; offer_groups.json seed)
-```
+- **`/pause` / `/resume`** — stops promo posts **and** trial delivery for a channel
+- **`/pausejoins` / `/resumejoins`** — when paused, join requests are approved immediately without a trial
 
-## Setup (one-time)
+## Join-request behavior
 
-1. **@BotFather** → `/newbot`, copy the token into `.env` (`TELEGRAM_BOT_TOKEN`).
-2. **Your channel** → add the bot as **admin** with at least:
-   - *Post Messages* (promo posts)
-   - *Pin Messages* (pinned CTA)
-   - *Add New Admins* **off**; the bot also needs membership visibility, which
-     admin status provides (used for `chat_member` join/leave tracking).
-   Put the channel id (e.g. `-1001234567890`) into `CHANNEL_ID`.
-3. **PasarGuard panel** → create a dedicated admin (e.g. `greet-bot`) with the
-   permissions **users: create/read** and **groups: read**; put its credentials
-   into `PANEL_ADMIN_USERNAME` / `PANEL_ADMIN_PASSWORD`.
-4. Fill the rest of `.env` from `.env.example` (owner Telegram ids, trial knobs).
-5. Configure the groups you want to offer:
-   - quick way: edit `data/offer_groups.json` before first start —
-     `[{"id": 2, "label": "🇳🇱 هلند"}, {"id": 5, "label": "🇹🇷 ترکیه"}]`
-     (`id` = panel group id, find them with `/groups` after start), or
-   - at runtime with `/setoffer` (see below).
+| Situation | What happens |
+|-----------|-------------|
+| Eligible (no prior trial) | Trial created → DM → approve after delay |
+| Already has an active trial | Approve immediately → DM with existing sub link |
+| In cooldown | Approve immediately → DM mentioning cooldown |
+| No offer groups | Approve immediately |
+| Panel error | Approve immediately → DM "try again later" |
+| DM fails | Still approves — user is never blocked |
 
-## Run
+## Roles
 
-```bash
-cp .env.example .env          # fill in real values
+| Role | Controls |
+|------|----------|
+| **superadmin** | Everything — panels, channels, users, all commands |
+| **admin** | Assigned channels — full control |
+| **user** | End users — /start and join-requests only |
 
-# Recommended first: verify panel connectivity, credentials, and your
-# offer groups — before the bot ever starts:
-python -m bot.smoke
+---
 
-docker compose up -d --build  # VPS long-polling — no public HTTPS needed
-```
-
-`bot.smoke` checks: panel reachable (with a self-signed-cert hint if not) →
-login OK → lists panel groups → flags offer groups whose ids no longer exist.
-
-A ready-made GitHub Actions workflow lives in `docs/github-ci.yml` (ruff +
-format check + full pytest). To enable it, copy it to
-`.github/workflows/ci.yml` and push with a token that has the `workflows`
-permission — see the comment at the top of that file.
-
-Development:
+## Development
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-python -m bot.main            # long-polling run
-pytest -q                     # 68 tests
+python -m bot.main            # run
+pytest -q                     # 285 tests
+ruff check .                  # lint
 ```
-
-## Owner commands (restricted to `OWNER_TG_IDS`)
-
-| Command | What it does |
-|---|---|
-| `/pause` | **Master switch off** — stops promo posts and trial delivery (restart-safe) |
-| `/resume` | **Master switch on** — a due promo post goes out within a minute |
-| `/setmaxage <days>` | Only members who joined within `<days>` may get a test (0 = off). Based on the bot's join tracking — members from before the bot are ineligible while active |
-| `/setpromo <text>` | Change the channel promo message (HTML allowed), no restart |
-| `/setinterval <hours>` | How often the promo post is refreshed (e.g. `6`) |
-| `/promonow` | Publish + pin the promo post immediately |
-| `/getpromo` | Show current text, interval, next run time |
-| `/groups` | List **all panel groups** with ids (from the panel, live) |
-| `/offergroups` | Show your curated offer list + warn about deleted panel groups |
-| `/setoffer <id> <label>` | Add/update an offered group, e.g. `/setoffer 2 🇳🇱 هلند` |
-| `/deloffer <id>` | Remove a group from the offer list |
-| `/reorder <id1>,<id2>,…` | Set the button display order |
-| `/clearoffers` | Empty the list (pauses trials with a polite message) |
-| `/reset <tg_user_id>` | Revoke a user's trial so they can claim again |
-| `/stats` | Channel members, joins/leaves (24 h), grants total/active, next promo |
-
-An **empty offer list pauses trials** — the bot replies "در حال حاضر تست رایگان
-موجود نیست 🙏" instead of offering all panel groups. You are always in control.
-
-## Trial settings (`.env`)
-
-- `TRIAL_DATA_LIMIT_GB=5` — test size
-- `TRIAL_DAYS=3` — usage window **after first connection** (on-hold)
-- `ON_HOLD_GRACE_DAYS=7` — deadline for the first connection
-- `TRIAL_PROTOCOLS=vless` — comma-separated protocols
-- `AUTO_DELETE_DAYS=11` — panel-side cleanup of finished trials
-- `ALLOW_REGRANT_AFTER_DAYS=30` — cooldown before a user may re-claim
-- `TRIAL_MAX_MEMBER_AGE_DAYS=0` — "new members only": 0 = off, else only members
-  who joined within N days are eligible (runtime: `/setmaxage`)
-- `PANEL_VERIFY_SSL=true` — set `false` if the panel uses a self-signed cert
