@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `docs/channel-posts-plan.md` — DRAFT design for manual & scheduled channel
+  posts: rich inline buttons (URL / no-op / copy), native colors
+  (`style`: green/red/blue), premium emojis in caption + button icons with
+  auto-fallback, delete-previous (channel default + per-post), pin/silent,
+  single media, one-shot + daily/weekly scheduling (Asia/Tehran).
+  Awaiting operator review before implementation.
+
 - `scripts/devenv.sh` — development-environment helper with a `check` subcommand
   that verifies the whole environment is green in one shot (python version,
   venv, dependencies, `pip check`, `.env`, ruff lint + format, tests with the
