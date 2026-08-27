@@ -13,11 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that verifies the whole environment is green in one shot (python version,
   venv, dependencies, `pip check`, `.env`, ruff lint + format, tests with the
   coverage gate), plus `setup` / `update` / `lint` / `test` subcommands.
+- `scripts/git-safety.sh` — enforced git policy: no rebase/squash/force-push,
+  session branch fast-forward only (local config + `pre-rebase`/`pre-push`
+  hooks; re-runnable after sandbox rewinds). `devenv.sh check` reports its
+  state.
 - Coverage gate: `pytest-cov` wired into `pyproject.toml` with
   `--cov-fail-under=80` — the suite now fails if coverage drops below the
   threshold (`scripts/devenv.sh test` shows the number).
-- `SESSION_HANDOFF.md` — session handoff document for picking up work in a new
-  session without re-discovering context.
+- `SESSION_HANDOFF.md` — session handoff document (Puploader format) for
+  picking up work in a new session without re-discovering context, including
+  the sandbox-rewind recovery ritual and the git safety policy.
 
 ### Changed
 

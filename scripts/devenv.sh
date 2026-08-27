@@ -196,6 +196,15 @@ cmd_check() {
     echo
     tail -3 /tmp/devenv_pytest.log 2>/dev/null || true
 
+    echo -e "${BOLD}[extra] Git safety policy${OFF}"
+    if [ -x "$ROOT/scripts/git-safety.sh" ]; then
+        if bash "$ROOT/scripts/git-safety.sh" check >/dev/null 2>&1; then
+            step "git safety (config + hooks)" ok
+        else
+            step "git safety (config + hooks)" warn "run: scripts/git-safety.sh install"
+        fi
+    fi
+
     summary
 }
 

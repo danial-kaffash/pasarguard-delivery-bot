@@ -243,6 +243,7 @@ Individual commands:
 ```bash
 scripts/devenv.sh test        # pytest with coverage summary
 scripts/devenv.sh lint        # ruff check + format check
+scripts/git-safety.sh install # enforce git policy (no rebase/squash/force-push)
 pytest -q                     # 389 tests, ~85% coverage
 ruff check .                  # lint
 ```
