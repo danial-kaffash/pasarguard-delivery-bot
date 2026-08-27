@@ -347,10 +347,10 @@ Use `CallbackData` from aiogram for type-safe callbacks:
 
 ```python
 class AdminCB(CallbackData, prefix="adm"):
-    action: str      # "view", "edit", "toggle", "confirm", "back"
-    target: str      # "panel", "channel", "user", "promo", "trial", "offer", "join"
-    target_id: int = 0   # panel_id, channel_id, user_id, offer_group_id, etc.
-    extra: str = ""      # field name, value, etc.
+    action: str  # "view", "edit", "toggle", "confirm", "back"
+    target: str  # "panel", "channel", "user", "promo", "trial", "offer", "join"
+    target_id: int = 0  # panel_id, channel_id, user_id, offer_group_id, etc.
+    extra: str = ""  # field name, value, etc.
 ```
 
 Examples:
@@ -387,8 +387,7 @@ class PanelManager:
         """Return (or lazily create) the client for a panel."""
         ...
 
-    async def close_all(self):
-        ...
+    async def close_all(self): ...
 ```
 
 - Clients are created lazily on first use and cached.
