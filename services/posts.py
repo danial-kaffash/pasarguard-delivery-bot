@@ -26,6 +26,9 @@ from aiogram.types import (
     DisabledButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaAnimation,
+    InputMediaPhoto,
+    InputMediaVideo,
     LinkPreviewOptions,
     MessageEntity,
 )
@@ -49,6 +52,7 @@ class SendResult:
     message_id: int
     used_fallback: bool = False
     expires_at: str | None = None
+    message_ids: list[int] | None = None  # album sends produce several messages
 
 
 # ── UTF-16 entity math (Telegram entity offsets are UTF-16 code units) ───────
@@ -127,6 +131,98 @@ def buttons_from_json(raw: str | None) -> list[dict]:
     except (json.JSONDecodeError, TypeError):
         return []
     return data if isinstance(data, list) else []
+
+
+def media_items_from_json(raw: str | None) -> list[dict]:
+    """Album items: [{"type": "photo|video|animation", "file_id": "..."}, ...]."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [
+        d
+        for d in data
+        if isinstance(d, dict)
+        and d.get("type") in ("photo", "video", "animation")
+        and d.get("file_id")
+    ]
+
+
+def media_items_to_json(items: list[dict]) -> str:
+    return json.dumps(
+        [{"type": it["type"], "file_id": it["file_id"]} for it in items],
+        ensure_ascii=False,
+    )
+
+
+def message_ids_from_json(raw: str | None) -> list[int]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [i for i in data if isinstance(i, int)] if isinstance(data, list) else []
+
+
+def is_album(post: ChannelPost) -> bool:
+    """An album post carries 2+ media items and sends via send_media_group."""
+    return len(media_items_from_json(post.media_json)) >= 2
+
+
+def post_message_ids(post: ChannelPost) -> list[int]:
+    """Every Telegram message id belonging to a published post."""
+    ids = message_ids_from_json(post.tg_message_ids_json)
+    if ids:
+        return ids
+    return [post.tg_message_id] if post.tg_message_id else []
+
+
+async def delete_post_messages(bot: Bot, channel: Channel, post: ChannelPost) -> None:
+    """Delete a post's message(s) from the channel; failures are tolerated."""
+    for mid in post_message_ids(post):
+        try:
+            await bot.delete_message(channel.tg_channel_id, mid)
+        except TelegramAPIError as exc:
+            logger.warning("Could not delete message %s of post %s: %s", mid, post.id, exc)
+
+
+def _build_media_group(
+    post: ChannelPost, entities: list[MessageEntity] | None
+) -> list[InputMediaPhoto | InputMediaVideo | InputMediaAnimation]:
+    media_cls = {
+        "photo": InputMediaPhoto,
+        "video": InputMediaVideo,
+        "animation": InputMediaAnimation,
+    }
+    group: list = []
+    for i, item in enumerate(media_items_from_json(post.media_json)):
+        kwargs: dict = {"media": item["file_id"]}
+        if i == 0 and post.text:
+            kwargs["caption"] = post.text
+            if entities:
+                kwargs["caption_entities"] = entities
+        group.append(media_cls[item["type"]](**kwargs))
+    return group
+
+
+async def _send_album(
+    bot: Bot,
+    chat_id: int,
+    post: ChannelPost,
+    *,
+    entities: list[MessageEntity] | None,
+    silent: bool,
+) -> list[int]:
+    """Send an album via send_media_group; returns all message ids."""
+    messages = await bot.send_media_group(
+        chat_id=chat_id,
+        media=_build_media_group(post, entities),
+        disable_notification=silent,
+    )
+    return [m.message_id for m in messages]
 
 
 # ── entities ─────────────────────────────────────────────────────────────────
@@ -240,11 +336,12 @@ def build_send_kwargs(
     keyboard: InlineKeyboardMarkup | None,
     chat_id: int | None = None,
 ) -> dict:
-    """Assemble the kwargs for send_* / edit_* methods (no parse_mode — entities)."""
-    kwargs: dict = {
-        "reply_markup": keyboard,
-        "link_preview_options": LinkPreviewOptions(is_disabled=not post.link_preview),
-    }
+    """Assemble the kwargs for send_* / edit_* methods (no parse_mode — entities).
+
+    ``link_preview_options`` only exists on text methods — send_photo/video/
+    animation and edit_message_caption reject it (TypeError).
+    """
+    kwargs: dict = {"reply_markup": keyboard}
     if chat_id is not None:
         kwargs["chat_id"] = chat_id
     if post.media_type:
@@ -253,6 +350,7 @@ def build_send_kwargs(
             kwargs["caption_entities"] = entities
     else:
         kwargs["text"] = post.text
+        kwargs["link_preview_options"] = LinkPreviewOptions(is_disabled=not post.link_preview)
         if entities:
             kwargs["entities"] = entities
     return kwargs
@@ -306,37 +404,11 @@ async def send_post(
     if post.delete_previous:
         prev = await store.last_published_post(db, post.channel_id)
         if prev and prev.id != post.id and prev.tg_message_id:
-            try:
-                await bot.delete_message(channel.tg_channel_id, prev.tg_message_id)
-            except TelegramAPIError as exc:
-                logger.warning("Could not delete previous post %s: %s", prev.id, exc)
+            await delete_post_messages(bot, channel, prev)
 
-    buttons = buttons_from_json(post.buttons_json)
     entities = entities_from_json(post.entities_json)
 
-    used_fallback = False
-    try:
-        sent = await _try_send(
-            bot,
-            channel.tg_channel_id,
-            post,
-            entities=entities,
-            keyboard=build_keyboard(buttons, with_icons=True),
-            silent=post.silent,
-        )
-    except TelegramBadRequest as exc:
-        if not _is_custom_emoji_error(exc):
-            raise
-        logger.warning("Premium emoji rejected for post %s — retrying without: %s", post.id, exc)
-        sent = await _try_send(
-            bot,
-            channel.tg_channel_id,
-            post,
-            entities=strip_custom_emoji_entities(entities),
-            keyboard=build_keyboard(buttons, with_icons=False),
-            silent=post.silent,
-        )
-        used_fallback = True
+    async def notify_fallback() -> None:
         if fallback_notify_chat_id:
             try:
                 await bot.send_message(
@@ -347,11 +419,64 @@ async def send_post(
             except TelegramAPIError:
                 pass
 
+    used_fallback = False
+    message_ids: list[int] | None = None
+    if is_album(post):
+        # Albums send via send_media_group (no keyboard support at all).
+        try:
+            message_ids = await _send_album(
+                bot, channel.tg_channel_id, post, entities=entities, silent=post.silent
+            )
+        except TelegramBadRequest as exc:
+            if not _is_custom_emoji_error(exc):
+                raise
+            logger.warning(
+                "Premium emoji rejected for post %s — retrying without: %s", post.id, exc
+            )
+            message_ids = await _send_album(
+                bot,
+                channel.tg_channel_id,
+                post,
+                entities=strip_custom_emoji_entities(entities),
+                silent=post.silent,
+            )
+            used_fallback = True
+            await notify_fallback()
+        first_id = message_ids[0]
+    else:
+        buttons = buttons_from_json(post.buttons_json)
+        try:
+            sent = await _try_send(
+                bot,
+                channel.tg_channel_id,
+                post,
+                entities=entities,
+                keyboard=build_keyboard(buttons, with_icons=True),
+                silent=post.silent,
+            )
+        except TelegramBadRequest as exc:
+            if not _is_custom_emoji_error(exc):
+                raise
+            logger.warning(
+                "Premium emoji rejected for post %s — retrying without: %s", post.id, exc
+            )
+            sent = await _try_send(
+                bot,
+                channel.tg_channel_id,
+                post,
+                entities=strip_custom_emoji_entities(entities),
+                keyboard=build_keyboard(buttons, with_icons=False),
+                silent=post.silent,
+            )
+            used_fallback = True
+            await notify_fallback()
+        first_id = sent.message_id
+
     if post.pin:
         try:
             await bot.pin_chat_message(
                 chat_id=channel.tg_channel_id,
-                message_id=sent.message_id,
+                message_id=first_id,
                 disable_notification=True,
             )
         except TelegramAPIError as exc:
@@ -362,7 +487,10 @@ async def send_post(
         expires_at = (now + timedelta(hours=post.ephemeral_hours)).isoformat()
 
     return SendResult(
-        message_id=sent.message_id, used_fallback=used_fallback, expires_at=expires_at
+        message_id=first_id,
+        used_fallback=used_fallback,
+        expires_at=expires_at,
+        message_ids=message_ids,
     )
 
 
@@ -376,10 +504,11 @@ async def edit_published_post(
         return False
     buttons = buttons_from_json(post.buttons_json)
     entities = entities_from_json(post.entities_json)
+    # link_preview_options is only accepted by edit_message_text — the caption
+    # variant raises TypeError on it.
     base = {
         "chat_id": channel.tg_channel_id,
         "message_id": post.tg_message_id,
-        "link_preview_options": LinkPreviewOptions(is_disabled=not post.link_preview),
     }
 
     async def apply(text_kw: str, entities_kw: str, ents, keyboard) -> None:
@@ -388,47 +517,45 @@ async def edit_published_post(
         kwargs[text_kw] = post.text or ""
         if ents:
             kwargs[entities_kw] = ents
+        if text_kw == "text":
+            kwargs["link_preview_options"] = LinkPreviewOptions(is_disabled=not post.link_preview)
         if keyboard:
             kwargs["reply_markup"] = keyboard
         await method(**kwargs)
 
+    # Albums cannot carry a keyboard at all — only single-media/text posts.
+    keyboard = None if is_album(post) else build_keyboard(buttons, with_icons=True)
     try:
         if post.media_type:
-            await apply(
-                "caption", "caption_entities", entities, build_keyboard(buttons, with_icons=True)
-            )
+            await apply("caption", "caption_entities", entities, keyboard)
         else:
-            await apply("text", "entities", entities, build_keyboard(buttons, with_icons=True))
+            await apply("text", "entities", entities, keyboard)
     except TelegramBadRequest as exc:
         if not _is_custom_emoji_error(exc):
             raise
         logger.warning(
             "Premium emoji rejected while editing post %s — retrying without: %s", post.id, exc
         )
+        stripped_ents = strip_custom_emoji_entities(entities)
+        keyboard_fb = None if is_album(post) else build_keyboard(buttons, with_icons=False)
         if post.media_type:
-            await apply(
-                "caption",
-                "caption_entities",
-                strip_custom_emoji_entities(entities),
-                build_keyboard(buttons, with_icons=False),
-            )
+            await apply("caption", "caption_entities", stripped_ents, keyboard_fb)
         else:
-            await apply(
-                "text",
-                "entities",
-                strip_custom_emoji_entities(entities),
-                build_keyboard(buttons, with_icons=False),
-            )
+            await apply("text", "entities", stripped_ents, keyboard_fb)
     return True
 
 
 async def send_preview(bot: Bot, chat_id: int, post: ChannelPost) -> None:
     """Render a draft post to an admin chat — exactly what the channel will see."""
+    entities = entities_from_json(post.entities_json)
+    if is_album(post):
+        await _send_album(bot, chat_id, post, entities=entities, silent=False)
+        return
     await _try_send(
         bot,
         chat_id,
         post,
-        entities=entities_from_json(post.entities_json),
+        entities=entities,
         keyboard=build_keyboard(buttons_from_json(post.buttons_json)),
         silent=False,
     )
@@ -455,6 +582,7 @@ async def send_and_record(
         return
     updates: dict = {
         "tg_message_id": result.message_id,
+        "tg_message_ids_json": json.dumps(result.message_ids) if result.message_ids else None,
         "sent_at": now.isoformat(),
         "last_sent_at": now.isoformat(),
         "expires_at": result.expires_at,
@@ -502,17 +630,17 @@ async def dispatch_due_posts(
     for post in await store.list_expired_posts(db, now_iso):
         channel = await store.get_channel(db, post.channel_id)
         if channel is None:
-            await store.update_channel_post(db, post.id, expires_at=None, tg_message_id=None)
+            await store.update_channel_post(
+                db, post.id, expires_at=None, tg_message_id=None, tg_message_ids_json=None
+            )
             continue
-        try:
-            await bot.delete_message(channel.tg_channel_id, post.tg_message_id)
-        except TelegramAPIError as exc:
-            logger.warning("Could not delete expired post %s: %s", post.id, exc)
+        await delete_post_messages(bot, channel, post)
         await store.update_channel_post(
             db,
             post.id,
             expires_at=None,
             tg_message_id=None,
+            tg_message_ids_json=None,
             status="expired" if post.status == "sent" else post.status,
         )
     return sent

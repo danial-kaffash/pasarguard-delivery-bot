@@ -147,8 +147,9 @@ CREATE TABLE IF NOT EXISTS channel_posts (
     -- content (text or media caption + preserved entities)
     text            TEXT NOT NULL DEFAULT '',
     entities_json   TEXT,
-    media_type      TEXT,                 -- photo | video | animation | NULL
+    media_type      TEXT,                 -- photo | video | animation | album | NULL
     media_file_id   TEXT,
+    media_json      TEXT,                 -- album: [{type, file_id}, ...] (2..10 items)
     buttons_json    TEXT NOT NULL DEFAULT '[]',
 
     -- options
@@ -170,6 +171,7 @@ CREATE TABLE IF NOT EXISTS channel_posts (
     -- delivery
     sent_at         TEXT,
     tg_message_id   INTEGER,
+    tg_message_ids_json TEXT,             -- album: all message ids of the group
     error           TEXT
 );
 
@@ -182,6 +184,7 @@ CREATE TABLE IF NOT EXISTS post_templates (
     entities_json   TEXT,
     media_type      TEXT,
     media_file_id   TEXT,
+    media_json      TEXT,
     buttons_json    TEXT NOT NULL DEFAULT '[]',
     delete_previous INTEGER NOT NULL DEFAULT 0,
     pin             INTEGER NOT NULL DEFAULT 0,
@@ -224,6 +227,13 @@ async def _migrate(db: aiosqlite.Connection) -> None:
             "channels",
             "ALTER TABLE channels ADD COLUMN post_delete_previous INTEGER NOT NULL DEFAULT 0",
         ),
+        ("media_json", "channel_posts", "ALTER TABLE channel_posts ADD COLUMN media_json TEXT"),
+        (
+            "tg_message_ids_json",
+            "channel_posts",
+            "ALTER TABLE channel_posts ADD COLUMN tg_message_ids_json TEXT",
+        ),
+        ("media_json", "post_templates", "ALTER TABLE post_templates ADD COLUMN media_json TEXT"),
     ]
     for _col, _table, sql in _migrations:
         try:
@@ -1166,6 +1176,7 @@ class ChannelPost:
     entities_json: str | None
     media_type: str | None
     media_file_id: str | None
+    media_json: str | None
     buttons_json: str
     delete_previous: bool
     pin: bool
@@ -1180,6 +1191,7 @@ class ChannelPost:
     last_sent_at: str | None
     sent_at: str | None
     tg_message_id: int | None
+    tg_message_ids_json: str | None
     error: str | None
 
 
@@ -1193,6 +1205,7 @@ class PostTemplate:
     entities_json: str | None
     media_type: str | None
     media_file_id: str | None
+    media_json: str | None
     buttons_json: str
     delete_previous: bool
     pin: bool
@@ -1213,6 +1226,7 @@ def _row_to_channel_post(r: aiosqlite.Row) -> ChannelPost:
         entities_json=r["entities_json"],
         media_type=r["media_type"],
         media_file_id=r["media_file_id"],
+        media_json=r["media_json"] if "media_json" in r.keys() else None,
         buttons_json=r["buttons_json"],
         delete_previous=bool(r["delete_previous"]),
         pin=bool(r["pin"]),
@@ -1227,6 +1241,9 @@ def _row_to_channel_post(r: aiosqlite.Row) -> ChannelPost:
         last_sent_at=r["last_sent_at"],
         sent_at=r["sent_at"],
         tg_message_id=r["tg_message_id"],
+        tg_message_ids_json=(
+            r["tg_message_ids_json"] if "tg_message_ids_json" in r.keys() else None
+        ),
         error=r["error"],
     )
 
@@ -1241,6 +1258,7 @@ def _row_to_post_template(r: aiosqlite.Row) -> PostTemplate:
         entities_json=r["entities_json"],
         media_type=r["media_type"],
         media_file_id=r["media_file_id"],
+        media_json=r["media_json"] if "media_json" in r.keys() else None,
         buttons_json=r["buttons_json"],
         delete_previous=bool(r["delete_previous"]),
         pin=bool(r["pin"]),
@@ -1261,6 +1279,7 @@ async def create_channel_post(
     entities_json: str | None = None,
     media_type: str | None = None,
     media_file_id: str | None = None,
+    media_json: str | None = None,
     buttons_json: str = "[]",
     delete_previous: bool = False,
     pin: bool = False,
@@ -1274,9 +1293,10 @@ async def create_channel_post(
     now = _now()
     cursor = await db.execute(
         "INSERT INTO channel_posts (channel_id, group_id, created_by, created_at, updated_at, "
-        "text, entities_json, media_type, media_file_id, buttons_json, delete_previous, pin, "
-        "silent, link_preview, ephemeral_hours, status, scheduled_at, recurrence, recur_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "text, entities_json, media_type, media_file_id, media_json, buttons_json, "
+        "delete_previous, pin, silent, link_preview, ephemeral_hours, status, scheduled_at, "
+        "recurrence, recur_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             channel_id,
             group_id,
@@ -1287,6 +1307,7 @@ async def create_channel_post(
             entities_json,
             media_type,
             media_file_id,
+            media_json,
             buttons_json,
             int(delete_previous),
             int(pin),
@@ -1411,6 +1432,7 @@ async def create_post_template(
     entities_json: str | None = None,
     media_type: str | None = None,
     media_file_id: str | None = None,
+    media_json: str | None = None,
     buttons_json: str = "[]",
     delete_previous: bool = False,
     pin: bool = False,
@@ -1420,8 +1442,8 @@ async def create_post_template(
 ) -> PostTemplate:
     cursor = await db.execute(
         "INSERT INTO post_templates (name, created_by, created_at, text, entities_json, "
-        "media_type, media_file_id, buttons_json, delete_previous, pin, silent, link_preview, "
-        "ephemeral_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "media_type, media_file_id, media_json, buttons_json, delete_previous, pin, silent, "
+        "link_preview, ephemeral_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             name,
             created_by,
@@ -1430,6 +1452,7 @@ async def create_post_template(
             entities_json,
             media_type,
             media_file_id,
+            media_json,
             buttons_json,
             int(delete_previous),
             int(pin),

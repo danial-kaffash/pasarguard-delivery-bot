@@ -11,6 +11,7 @@ All times are Asia/Tehran (+03:30, no DST) and stored as UTC ISO strings.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import replace
@@ -67,6 +68,7 @@ class PostWizard(StatesGroup):
     schedule_time = State()
     reschedule = State()
     edit_text = State()
+    edit_media = State()
     check_premium = State()
 
 
@@ -125,6 +127,7 @@ def _empty_post(**overrides) -> ChannelPost:
         entities_json=None,
         media_type=None,
         media_file_id=None,
+        media_json=None,
         buttons_json="[]",
         delete_previous=False,
         pin=False,
@@ -139,6 +142,7 @@ def _empty_post(**overrides) -> ChannelPost:
         last_sent_at=None,
         sent_at=None,
         tg_message_id=None,
+        tg_message_ids_json=None,
         error=None,
     )
     base.update(overrides)
@@ -160,7 +164,12 @@ def _channel_picker(channels: list[Channel], selected: list[int]) -> InlineKeybo
 
 
 def _content_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[_btn("➡️ ادامه", "next", extra="buttons")]])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn("📚 قالب‌ها", "tpllist")],
+            [_btn("➡️ ادامه", "next", extra="buttons")],
+        ]
+    )
 
 
 def _buttons_menu(buttons: list[dict]) -> InlineKeyboardMarkup:
@@ -284,15 +293,16 @@ def _extract_content(message: Message) -> dict | None:
     """Pull text/entities or media+caption out of any acceptable message."""
     media = None
     if message.photo:
-        media = ("photo", message.photo[-1].file_id)
+        media = ("photo", message.photo[-1].file_id, message.photo[-1].file_unique_id)
     elif message.video:
-        media = ("video", message.video.file_id)
+        media = ("video", message.video.file_id, message.video.file_unique_id)
     elif message.animation:
-        media = ("animation", message.animation.file_id)
+        media = ("animation", message.animation.file_id, message.animation.file_unique_id)
     if media:
         return {
             "media_type": media[0],
             "media_file_id": media[1],
+            "media_unique_id": media[2],
             "text": message.caption or "",
             "entities": message.caption_entities,
         }
@@ -300,10 +310,47 @@ def _extract_content(message: Message) -> dict | None:
         return {
             "media_type": None,
             "media_file_id": None,
+            "media_unique_id": None,
             "text": message.text,
             "entities": message.entities,
         }
     return None
+
+
+def _content_fields(data: dict) -> dict:
+    """Content columns for create/template/preview from wizard state.
+
+    2+ accumulated media-group items → album post (media_json); a single
+    media item → classic single-media post; otherwise a text post.
+    """
+    items = data.get("media_items") or []
+    fields = {
+        "text": data.get("text") or "",
+        "entities_json": data.get("entities_json"),
+        "media_type": data.get("media_type"),
+        "media_file_id": data.get("media_file_id"),
+        "media_json": None,
+    }
+    if len(items) == 1:
+        fields["media_type"] = items[0]["type"]
+        fields["media_file_id"] = items[0]["file_id"]
+    elif len(items) >= 2:
+        fields["media_type"] = "album"
+        fields["media_file_id"] = None
+        fields["media_json"] = svc.media_items_to_json(items)
+    return fields
+
+
+def _is_album_data(data: dict) -> bool:
+    return len(data.get("media_items") or []) >= 2
+
+
+def _has_content(data: dict) -> bool:
+    return (
+        data.get("text") is not None
+        or bool(data.get("media_type"))
+        or bool(data.get("media_items"))
+    )
 
 
 def _apply_layout(data: dict) -> list[dict]:
@@ -345,11 +392,13 @@ def parse_layout(raw: str | None) -> list[int] | None:
 def _draft_post(data: dict) -> ChannelPost:
     """Materialize wizard state as a ChannelPost (for preview/sending)."""
     opts = data.get("opts") or {}
+    content = _content_fields(data)
     return _empty_post(
-        text=data.get("text", ""),
-        entities_json=data.get("entities_json"),
-        media_type=data.get("media_type"),
-        media_file_id=data.get("media_file_id"),
+        text=content["text"],
+        entities_json=content["entities_json"],
+        media_type=content["media_type"],
+        media_file_id=content["media_file_id"],
+        media_json=content["media_json"],
         buttons_json=svc.buttons_to_json(_apply_layout(data)),
         delete_previous=bool(opts.get("delete_previous")),
         pin=bool(opts.get("pin")),
@@ -546,8 +595,15 @@ async def on_wizard_next(
             return
         await _enter_content_step(callback.message, state)
     elif step == "buttons":
-        if data.get("text") is None and not data.get("media_type"):
+        if not _has_content(data):
             await callback.answer("اول محتوا را بفرستید.", show_alert=True)
+            return
+        if _is_album_data(data):
+            # Albums send via sendMediaGroup — Telegram allows no keyboard.
+            await callback.answer("آلبوم‌ها دکمه ندارند؛ می‌رویم سراغ گزینه‌ها.")
+            await state.set_state(PostWizard.menu)
+            opts = data.get("opts") or _default_opts([])
+            await _show(callback.message, "⚙️ <b>گزینه‌ها</b>", _options_menu(opts, []))
             return
         await state.set_state(PostWizard.menu)
         await _show(
@@ -557,6 +613,13 @@ async def on_wizard_next(
             _buttons_menu(data.get("buttons") or []),
         )
     elif step == "layout":
+        if _is_album_data(data) or not (data.get("buttons") or []):
+            # Nothing to lay out — straight to options.
+            await state.set_state(PostWizard.menu)
+            opts = data.get("opts") or _default_opts([])
+            await _show(callback.message, "⚙️ <b>گزینه‌ها</b>", _options_menu(opts, []))
+            await callback.answer()
+            return
         await state.set_state(PostWizard.layout)
         await _show(
             callback.message,
@@ -619,15 +682,195 @@ async def input_content(message: Message, state: FSMContext) -> None:
     if content is None:
         await message.answer("❌ فقط متن، عکس، ویدیو یا گیف. فایل و ویس پشتیبانی نمی‌شود.")
         return
+    data = await state.get_data()
+
+    if content["media_type"] and message.media_group_id:
+        # Part of a media group (album) — accumulate items; caption taken from
+        # whichever group message carries one.
+        items = list(data.get("media_items") or [])
+        item = {
+            "type": content["media_type"],
+            "file_id": content["media_file_id"],
+            "unique": content["media_unique_id"],
+        }
+        if not any(it.get("unique") == item["unique"] for it in items):
+            items.append(item)
+        await state.update_data(
+            media_items=items,
+            text=content["text"] or data.get("text") or "",
+            entities_json=(
+                svc.entities_to_json(content["entities"] or None)
+                if content["entities"]
+                else data.get("entities_json")
+            ),
+            media_type=None,
+            media_file_id=None,
+        )
+        await message.answer(
+            f"✅ آلبوم: {len(items)} آیتم ذخیره شد "
+            "(آیتم‌های بعدی گروه را هم بفرستید، بعد «➡️ ادامه»).",
+            reply_markup=_content_menu(),
+        )
+        return
+
+    if content["media_type"]:
+        # A single media message replaces everything (albums are built only
+        # from real media groups).
+        await state.update_data(
+            text=content["text"],
+            entities_json=svc.entities_to_json(content["entities"] or None),
+            media_type=content["media_type"],
+            media_file_id=content["media_file_id"],
+            media_items=None,
+        )
+        await message.answer(
+            "✅ محتوا ذخیره شد (برای عوض کردن، دوباره بفرستید).",
+            reply_markup=_content_menu(),
+        )
+        return
+
+    # Text message: caption when an album is being assembled, else a text post.
+    if data.get("media_items"):
+        await state.update_data(
+            text=content["text"],
+            entities_json=svc.entities_to_json(content["entities"] or None),
+        )
+        await message.answer("✅ کپشن آلبوم ذخیره شد.", reply_markup=_content_menu())
+        return
     await state.update_data(
         text=content["text"],
         entities_json=svc.entities_to_json(content["entities"] or None),
-        media_type=content["media_type"],
-        media_file_id=content["media_file_id"],
+        media_type=None,
+        media_file_id=None,
+        media_items=None,
     )
     await message.answer(
         "✅ محتوا ذخیره شد (برای عوض کردن، دوباره بفرستید).", reply_markup=_content_menu()
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Templates (start from a saved template) ────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _template_line(tpl: store.PostTemplate) -> str:
+    preview = html_escape((tpl.text or tpl.media_type or "بدون متن")[:40].replace("\n", " "))
+    media = "🖼 " if tpl.media_type else ""
+    return f"{media}#{tpl.id} {html_escape(tpl.name or 'بدون نام')} — {preview}"
+
+
+def _templates_menu(templates: list[store.PostTemplate]) -> InlineKeyboardMarkup:
+    rows = []
+    for tpl in templates:
+        rows.append(
+            [
+                _btn(f"✅ #{tpl.id}", "tpl", tpl.id),
+                _btn(f"🗑 #{tpl.id}", "tpldel", tpl.id),
+            ]
+        )
+    rows.append([_btn("↩️ بازگشت به محتوا", "contentmenu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(PostsCB.filter(F.action == "tpllist"))
+async def on_templates_list(
+    callback: CallbackQuery, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    if not data.get("wizard"):
+        await callback.answer("ویزارد فعال نیست؛ /newpost بزنید.", show_alert=True)
+        return
+    templates = await store.list_post_templates(db, limit=20)
+    if not templates:
+        await callback.answer(
+            "قالبی ذخیره نشده — با کلید «💾 قالب» در زمان‌بندی ذخیره کنید.", show_alert=True
+        )
+        return
+    text = (
+        "📚 <b>قالب‌ها</b>\n\n"
+        + "\n".join(_template_line(t) for t in templates)
+        + "\n\n✅ بارگذاری · 🗑 حذف"
+    )
+    await _show(callback.message, text, _templates_menu(templates))
+    await callback.answer()
+
+
+@router.callback_query(PostsCB.filter(F.action == "tpl"))
+async def on_template_pick(
+    callback: CallbackQuery, callback_data: PostsCB, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    if not data.get("wizard"):
+        await callback.answer("ویزارد فعال نیست.", show_alert=True)
+        return
+    tpl = await store.get_post_template(db, callback_data.tid)
+    if not tpl:
+        await callback.answer("قالب یافت نشد.", show_alert=True)
+        return
+    # Albums come back as media_items so the wizard can keep accumulating.
+    tpl_items = svc.media_items_from_json(tpl.media_json)
+    media_items = [
+        {"type": it["type"], "file_id": it["file_id"], "unique": it["file_id"]} for it in tpl_items
+    ] or None
+    await state.update_data(
+        text=tpl.text,
+        entities_json=tpl.entities_json,
+        media_type=tpl.media_type if not media_items else None,
+        media_file_id=tpl.media_file_id if not media_items else None,
+        media_items=media_items,
+        buttons=svc.buttons_from_json(tpl.buttons_json),
+        layout=None,
+        opts={
+            "delete_previous": tpl.delete_previous,
+            "pin": tpl.pin,
+            "silent": tpl.silent,
+            "link_preview": tpl.link_preview,
+            "ephemeral_hours": tpl.ephemeral_hours,
+        },
+    )
+    await state.set_state(PostWizard.content)
+    await _show(
+        callback.message,
+        f"✅ قالب #{tpl.id} بارگذاری شد — می‌توانید محتوا را عوض کنید یا «➡️ ادامه» را بزنید.",
+        _content_menu(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(PostsCB.filter(F.action == "tpldel"))
+async def on_template_delete(
+    callback: CallbackQuery, callback_data: PostsCB, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    if not data.get("wizard"):
+        await callback.answer("ویزارد فعال نیست.", show_alert=True)
+        return
+    await store.delete_post_template(db, callback_data.tid)
+    templates = await store.list_post_templates(db, limit=20)
+    if not templates:
+        await state.set_state(PostWizard.content)
+        await _show(callback.message, "🗑 قالب حذف شد. قالب دیگری نیست.", _content_menu())
+    else:
+        text = (
+            "📚 <b>قالب‌ها</b>\n\n"
+            + "\n".join(_template_line(t) for t in templates)
+            + "\n\n✅ بارگذاری · 🗑 حذف"
+        )
+        await _show(callback.message, text, _templates_menu(templates))
+    await callback.answer("حذف شد.")
+
+
+@router.callback_query(PostsCB.filter(F.action == "contentmenu"))
+async def on_content_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(PostWizard.content)
+    await _show(
+        callback.message,
+        "✍️ <b>محتوا</b>\n\nمتن، عکس، ویدیو یا گیف پست را بفرستید "
+        "(فوروارد هم قبول است — متن، فونت و ایموجی‌ها حفظ می‌شوند).",
+        _content_menu(),
+    )
+    await callback.answer()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -905,6 +1148,7 @@ async def on_confirm(
     now = datetime.now(UTC)
     opts = data.get("opts") or {}
     buttons_json = svc.buttons_to_json(_apply_layout(data))
+    content = _content_fields(data)
 
     results: list[str] = []
     for ch_id in selected:
@@ -918,10 +1162,11 @@ async def on_confirm(
             created_by=uid,
             status="draft",
             group_id=group_id,
-            text=data.get("text", ""),
-            entities_json=data.get("entities_json"),
-            media_type=data.get("media_type"),
-            media_file_id=data.get("media_file_id"),
+            text=content["text"],
+            entities_json=content["entities_json"],
+            media_type=content["media_type"],
+            media_file_id=content["media_file_id"],
+            media_json=content["media_json"],
             buttons_json=buttons_json,
             delete_previous=bool(opts.get("delete_previous")),
             pin=bool(opts.get("pin")),
@@ -942,6 +1187,9 @@ async def on_confirm(
                 db,
                 post.id,
                 tg_message_id=result.message_id,
+                tg_message_ids_json=(
+                    json.dumps(result.message_ids) if result.message_ids else None
+                ),
                 sent_at=now.isoformat(),
                 last_sent_at=now.isoformat(),
                 expires_at=result.expires_at,
@@ -965,10 +1213,11 @@ async def on_confirm(
             db,
             created_by=uid,
             name=datetime.now().strftime("%Y-%m-%d %H:%M"),
-            text=data.get("text", ""),
-            entities_json=data.get("entities_json"),
-            media_type=data.get("media_type"),
-            media_file_id=data.get("media_file_id"),
+            text=content["text"],
+            entities_json=content["entities_json"],
+            media_type=content["media_type"],
+            media_file_id=content["media_file_id"],
+            media_json=content["media_json"],
             buttons_json=buttons_json,
             delete_previous=bool(opts.get("delete_previous")),
             pin=bool(opts.get("pin")),
@@ -1009,6 +1258,8 @@ def _post_menu(post: ChannelPost) -> InlineKeyboardMarkup:
         )
     if post.tg_message_id:
         rows.append([_btn("✏️ ویرایش متن منتشرشده", "pact", post.id, "edit")])
+    if post.status in ("scheduled", "recurring", "sent", "failed"):
+        rows.append([_btn("🔄 تعویض رسانه", "pact", post.id, "swapmedia")])
     rows.append(
         [
             _btn("📋 کپی به‌عنوان جدید", "pact", post.id, "copy"),
@@ -1023,6 +1274,8 @@ def _post_detail_text(post: ChannelPost, ch: Channel | None) -> str:
     lines = [svc.post_summary_line(post)]
     if ch:
         lines.append(f"📺 {_ch_title(ch)}")
+    if svc.is_album(post):
+        lines.append(f"🖼 آلبوم ({len(svc.media_items_from_json(post.media_json))} آیتم)")
     if post.scheduled_at and post.status in ("scheduled", "recurring"):
         when = svc.format_tehran(svc.parse_dt(post.scheduled_at))
         lines.append(f"⏰ اجرای بعدی: {when} (تهران)")
@@ -1168,15 +1421,31 @@ async def on_post_action(
         await _show(callback.message, f"🗑 حذف شد.\n\n{text}", kb)
         await callback.answer("حذف شد.")
 
+    elif action == "swapmedia":
+        await state.set_state(PostWizard.edit_media)
+        await state.update_data(swap_post_id=post.id)
+        await _show(
+            callback.message,
+            "🔄 رسانهٔ جدید را بفرستید (عکس، ویدیو یا گیف — تکی)."
+            " متن/کپشن فعلی حفظ می‌شود مگر اینکه کپشن جدید بفرستید.",
+        )
+        await callback.answer()
+
     elif action == "copy":
+        post_items = svc.media_items_from_json(post.media_json)
         await state.set_state(PostWizard.menu)
         await state.update_data(
             wizard=True,
             selected=[ch.id],
             text=post.text,
             entities_json=post.entities_json,
-            media_type=post.media_type,
-            media_file_id=post.media_file_id,
+            media_type=post.media_type if not post_items else None,
+            media_file_id=post.media_file_id if not post_items else None,
+            media_items=[
+                {"type": it["type"], "file_id": it["file_id"], "unique": it["file_id"]}
+                for it in post_items
+            ]
+            or None,
             buttons=svc.buttons_from_json(post.buttons_json),
             layout=None,
             opts={
@@ -1197,6 +1466,65 @@ async def on_post_action(
         await callback.answer()
     else:
         await callback.answer()
+
+
+@router.message(PostWizard.edit_media)
+async def input_edit_media(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
+    """Swap a post's media: update fields; when published, delete + resend in place."""
+    data = await state.get_data()
+    post = await store.get_channel_post(db, data.get("swap_post_id") or 0)
+    if not post:
+        await state.clear()
+        await message.answer("❌ پست یافت نشد؛ عملیات لغو شد.")
+        return
+    content = _extract_content(message)
+    if content is None or not content["media_type"]:
+        await message.answer("❌ فقط یک عکس، ویدیو یا گیف تکی بفرستید.")
+        return
+    ch = await store.get_channel(db, post.channel_id)
+    if not ch:
+        await state.clear()
+        await message.answer("❌ کانال یافت نشد؛ عملیات لغو شد.")
+        return
+
+    updates: dict = {
+        "media_type": content["media_type"],
+        "media_file_id": content["media_file_id"],
+        "media_json": None,
+        "tg_message_ids_json": None,
+        "error": None,
+    }
+    if content["text"]:
+        updates["text"] = content["text"]
+        updates["entities_json"] = svc.entities_to_json(content["entities"] or None)
+    await store.update_channel_post(db, post.id, **updates)
+    post = await store.get_channel_post(db, post.id)
+
+    if post.tg_message_id:
+        # Published: remove the old message(s) and send the new media in place.
+        # The schedule of recurring posts is NOT advanced by a swap.
+        await svc.delete_post_messages(message.bot, ch, post)
+        try:
+            result = await svc.send_post(message.bot, db, post, ch)
+        except TelegramAPIError as exc:
+            await store.update_channel_post(db, post.id, status="failed", error=str(exc)[:500])
+            await message.answer(f"❌ ارسال رسانهٔ جدید ناموفق بود: {html_escape(str(exc)[:150])}")
+            await state.clear()
+            return
+        now = datetime.now(UTC)
+        await store.update_channel_post(
+            db,
+            post.id,
+            tg_message_id=result.message_id,
+            tg_message_ids_json=(json.dumps(result.message_ids) if result.message_ids else None),
+            sent_at=now.isoformat(),
+            last_sent_at=now.isoformat(),
+            expires_at=result.expires_at,
+        )
+        await message.answer("✅ رسانه تعویض شد و پست جدید ارسال شد.")
+    else:
+        await message.answer("✅ رسانهٔ پست به‌روزرسانی شد (هنوز ارسال نشده).")
+    await state.clear()
 
 
 @router.message(PostWizard.reschedule)

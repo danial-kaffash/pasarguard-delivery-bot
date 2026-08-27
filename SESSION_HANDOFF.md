@@ -2,7 +2,40 @@
 
 **Updated:** 2026-08-27 (Asia/Tehran) — latest slice: the **channel-posts feature (v1)** (`/newpost` wizard, `/posts` management, `/checkpremium`, 30 s posts scheduler; all six backlog ideas promoted into v1 by operator decision). Previously: the **`scripts/devenv.sh` gate** (check/setup/update/lint/test), the **coverage gate at 80%**, the **`CHANGELOG.md`**, the **session-handoff document** (this file, Puploader format), the **whole-repo lint recovery** (~200 drifted ruff findings), the **`offer_del` malformed-payload fix**, and the **git safety policy** (`scripts/git-safety.sh` config + hooks; no rebase/squash/force-push, session branch fast-forward only) with the **sandbox-rewind recovery ritual**:
 
-- **Channel posts v1 (2026-08-27, latest):** design doc first
+- **Channel posts v1.1 — prod crash fix + albums/templates/media-swap
+  (2026-08-27, latest):** operator reported
+  `Bot.send_photo() got an unexpected keyword argument
+  'link_preview_options'` from a media-post preview in production. Root
+  cause: `build_send_kwargs` attached `link_preview_options` to ALL sends,
+  but media methods (`send_photo/video/animation`) — and
+  `edit_message_caption` — have no such parameter (verified against aiogram
+  3.31 signatures). Fixed by passing it only on text paths
+  (`send_message` / `edit_message_text`); the fake bots now assert the
+  forbidden kwargs (mirroring real signatures) and the regression tests were
+  demonstrated against the pre-fix code. Persian strings signed off by the
+  operator. Then the three remaining backlog items landed:
+  - **Albums (media groups)**: wizard accumulates media-group items
+    (deduplicated by `file_unique_id`, caption from the message that carries
+    one), stored as `channel_posts.media_json` (`media_type='album'`),
+    sent via `sendMediaGroup` (caption+entities on the first item, NO
+    keyboard — Telegram limitation, wizard skips button/layout steps for
+    albums with a notice), all message ids stored in
+    `tg_message_ids_json` so pin (first)/delete-previous/ephemeral-expiry/
+    delete cover the whole group; premium-emoji fallback + in-place caption
+    edit (`edit_message_caption` on the first id) both work.
+  - **Template picker**: «📚 قالب‌ها» in the content step (PostsCB actions
+    `tpllist`/`tpl`/`tpldel`/`contentmenu`) — lists saved templates, loads
+    content+buttons+opts into the wizard, deletes; album templates load back
+    as accumulatable `media_items`.
+  - **Media swap**: «🔄 تعویض رسانه» (pact action `swapmedia`, state
+    `edit_media`): a single new photo/video/animation replaces the media;
+    published posts → old message(s) deleted + new one sent in place WITHOUT
+    advancing a recurring schedule; scheduled posts → fields updated only.
+  - Storage: additive idempotent migrations `channel_posts.media_json`,
+    `channel_posts.tg_message_ids_json`, `post_templates.media_json`.
+  - Tests: 492 passed (was 467), coverage 83% (gate 80%).
+
+- **Channel posts v1 (2026-08-27):** design doc first
   (`docs/channel-posts-plan.md`, committed as DRAFT, then updated to
   IMPLEMENTED after the operator promoted all six backlog ideas — ephemeral
   posts, edit-published-in-place, recurring schedules, templates,
@@ -165,7 +198,7 @@ venv, broken deps, and an uninstalled git-safety policy. Latest full gate
 scripts/devenv.sh check
 ✓ python3 >= 3.11   ✓ .venv   ✓ deps   ✓ pip check   ! .env (warn-only)
 ✓ ruff check        ✓ ruff format --check
-✓ pytest — coverage 82% (gate: 80%)   → 467 passed, 82.33%
+✓ pytest — coverage 83% (gate: 80%)   → 492 passed
 ✓ git safety (config + hooks)
 ```
 
@@ -178,11 +211,11 @@ scripts/devenv.sh check
   panel.py` FSM wizard inputs, `bot/handlers/admin.py` error branches,
   `bot/smoke.py` (0% — diagnostic script; counted honestly, not excluded).
 - **Gate ratchet:** raise `--cov-fail-under` from 80 toward 85 once stable.
-- **Channel-posts follow-ups:** template browsing/picking UI (templates are
-  written by the wizard toggle but cannot yet start a new post), published
-  media swap needs delete+repost, media groups (albums) unsupported.
+- **Channel-posts follow-ups:** keep-last-N retention per channel; `pay` /
+  Stars buttons; album→single-media conversion UX (swap covers single media).
 - Persian strings are user-facing; do not reword them without operator
-  sign-off — the new posts handlers' Persian is **not yet signed off**.
+  sign-off — the posts handlers' Persian was signed off 2026-08-27
+  ("fine for now; change later if needed").
 - `bot/smoke.py` needs a real panel; it is the only intentionally untested
   runtime path.
 
@@ -225,7 +258,7 @@ a floor, not a ceiling — new code lands with tests.
 
 | Thing | State |
 |---|---|
-| Tests | **467 passed**, coverage **82%** (gate: 80%) |
+| Tests | **492 passed**, coverage **83%** (gate: 80%) |
 | Lint | `ruff check .` + `ruff format --check .` — green |
 | CI | Intentionally not used — local gate before every commit |
 | Deployment | Docker / docker-compose (bot only, SQLite on a volume) |

@@ -60,6 +60,7 @@ def _make_post(db_id: int, **kw) -> store.ChannelPost:
         entities_json=None,
         media_type=None,
         media_file_id=None,
+        media_json=None,
         buttons_json="[]",
         delete_previous=False,
         pin=False,
@@ -74,6 +75,7 @@ def _make_post(db_id: int, **kw) -> store.ChannelPost:
         last_sent_at=None,
         sent_at=None,
         tg_message_id=None,
+        tg_message_ids_json=None,
         error=None,
     )
     base.update(kw)
@@ -241,7 +243,8 @@ def test_build_send_kwargs_media_post_with_caption():
     kw = svc.build_send_kwargs(post, entities=ents, keyboard=None)
     assert kw["caption"] == "cap"
     assert kw["caption_entities"] == ents
-    assert kw["link_preview_options"].is_disabled is True
+    # Media methods have no link_preview_options parameter — must be absent.
+    assert "link_preview_options" not in kw
 
 
 # ── sending (fake bot) ───────────────────────────────────────────────────────
@@ -259,6 +262,10 @@ class FakeSendBot:
         for e in kwargs.get("entities") or []:
             if e.type == "custom_emoji":
                 return True
+        for item in kwargs.get("media") or []:
+            for e in getattr(item, "caption_entities", None) or []:
+                if e.type == "custom_emoji":
+                    return True
         kb = kwargs.get("reply_markup")
         if kb:
             return any(
@@ -275,9 +282,41 @@ class FakeSendBot:
         self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
         return SimpleNamespace(message_id=self._next_id)
 
+    async def send_media_group(self, chat_id, media=None, **kwargs):
+        # Mirror the real signature: no reply_markup, no link_preview_options.
+        for forbidden in ("reply_markup", "link_preview_options", "text"):
+            assert forbidden not in kwargs, f"send_media_group got forbidden kwarg {forbidden}"
+        if self.fail_on_custom_emoji and self._has_premium({"media": media}):
+            raise TelegramBadRequest(
+                method="sendMediaGroup", message="Bad Request: CUSTOM_EMOJI_INVALID"
+            )
+        ids = []
+        for _ in media or []:
+            self._next_id += 1
+            ids.append(SimpleNamespace(message_id=self._next_id))
+        self.sent.append({"chat_id": chat_id, "media": media, "media_group_ids": ids, **kwargs})
+        return ids
+
     async def send_photo(self, chat_id, photo=None, caption=None, **kwargs):
+        # Mirror the real Bot.send_photo signature: these kwargs are TypeErrors.
+        for forbidden in ("link_preview_options", "text", "entities"):
+            assert forbidden not in kwargs, f"send_photo got forbidden kwarg {forbidden}"
         self._next_id += 1
         self.sent.append({"chat_id": chat_id, "photo": photo, "caption": caption, **kwargs})
+        return SimpleNamespace(message_id=self._next_id)
+
+    async def send_video(self, chat_id, video=None, caption=None, **kwargs):
+        for forbidden in ("link_preview_options", "text", "entities"):
+            assert forbidden not in kwargs, f"send_video got forbidden kwarg {forbidden}"
+        self._next_id += 1
+        self.sent.append({"chat_id": chat_id, "video": video, "caption": caption, **kwargs})
+        return SimpleNamespace(message_id=self._next_id)
+
+    async def send_animation(self, chat_id, animation=None, caption=None, **kwargs):
+        for forbidden in ("link_preview_options", "text", "entities"):
+            assert forbidden not in kwargs, f"send_animation got forbidden kwarg {forbidden}"
+        self._next_id += 1
+        self.sent.append({"chat_id": chat_id, "animation": animation, "caption": caption, **kwargs})
         return SimpleNamespace(message_id=self._next_id)
 
     async def delete_message(self, chat_id, message_id):
@@ -358,6 +397,29 @@ async def test_send_post_media_uses_photo_method(db):
     await svc.send_post(bot, db, post, ch)
     assert bot.sent[0]["photo"] == "PHOTO1"
     assert bot.sent[0]["caption"] == "cap"
+
+
+async def test_send_post_media_never_gets_link_preview_options(db):
+    """Regression: send_photo/video/animation have no link_preview_options.
+
+    Production crash (2026-08-27): previewing a media post raised
+    ``Bot.send_photo() got an unexpected keyword argument
+    'link_preview_options'``. FakeSendBot.send_* now assert the forbidden
+    kwarg is absent, so a regression fails loudly here.
+    """
+    ch = await _channel(db)
+    for media_type, key in (("photo", "photo"), ("video", "video"), ("animation", "animation")):
+        post = _make_post(
+            ch.id,
+            text="cap",
+            media_type=media_type,
+            media_file_id="F1",
+            link_preview=False,
+        )
+        bot = FakeSendBot()
+        await svc.send_post(bot, db, post, ch)
+        assert bot.sent[0][key] == "F1"
+        assert bot.sent[0]["caption"] == "cap"
 
 
 # ── dispatch_due_posts ───────────────────────────────────────────────────────
@@ -471,12 +533,14 @@ async def test_edit_published_text_post(db):
 
     class EditBot:
         async def edit_message_text(self, **kwargs):
+            # edit_message_text DOES accept link_preview_options
             edits.append(kwargs)
 
     assert await svc.edit_published_post(EditBot(), post, ch) is True
     assert edits[0]["text"] == "نسخهٔ جدید"
     assert edits[0]["message_id"] == 42
     assert edits[0]["reply_markup"].inline_keyboard[0][0].url == BUTTON_URL["action"]["url"]
+    assert edits[0]["link_preview_options"].is_disabled is False
 
 
 async def test_edit_published_media_post_edits_caption(db):
@@ -487,6 +551,11 @@ async def test_edit_published_media_post_edits_caption(db):
 
     class EditBot:
         async def edit_message_caption(self, **kwargs):
+            # Mirror the real signature: edit_message_caption has NO
+            # link_preview_options parameter — passing it is a TypeError.
+            assert "link_preview_options" not in kwargs, (
+                "edit_message_caption got forbidden kwarg link_preview_options"
+            )
             edits.append(kwargs)
 
     await svc.edit_published_post(EditBot(), post, ch)
@@ -497,6 +566,184 @@ async def test_edit_without_message_id_is_rejected(db):
     ch = await _channel(db)
     post = _make_post(ch.id)
     assert await svc.edit_published_post(FakeSendBot(), post, ch) is False
+
+
+# ── albums (media groups) ────────────────────────────────────────────────────
+
+
+def _album_post(ch_id: int, **kw) -> store.ChannelPost:
+    media = json.dumps(
+        [
+            {"type": "photo", "file_id": "A1"},
+            {"type": "photo", "file_id": "A2"},
+            {"type": "video", "file_id": "A3"},
+        ]
+    )
+    return _make_post(ch_id, text="کپشن آلبوم", media_type="album", media_json=media, **kw)
+
+
+def test_media_items_json_helpers():
+    items = svc.media_items_from_json(
+        json.dumps([{"type": "photo", "file_id": "A"}, {"type": "bogus", "file_id": "B"}])
+    )
+    assert items == [{"type": "photo", "file_id": "A"}]
+    assert svc.media_items_from_json(None) == []
+    assert svc.media_items_from_json("not json") == []
+    assert svc.media_items_to_json([{"type": "video", "file_id": "V", "junk": 1}]) == (
+        '[{"type": "video", "file_id": "V"}]'
+    )
+    assert svc.message_ids_from_json("[3, 4, 5]") == [3, 4, 5]
+    assert svc.message_ids_from_json("x") == []
+
+
+def test_is_album_and_post_message_ids():
+    post = _album_post(1)
+    assert svc.is_album(post) is True
+    assert svc.is_album(_make_post(1, media_type="photo", media_file_id="P")) is False
+    assert svc.post_message_ids(_make_post(1, tg_message_id=9)) == [9]
+    assert svc.post_message_ids(
+        _make_post(1, tg_message_id=9, tg_message_ids_json="[9, 10, 11]")
+    ) == ([9, 10, 11])
+    assert svc.post_message_ids(_make_post(1)) == []
+
+
+async def test_send_post_album(db):
+    ch = await _channel(db)
+    post = _album_post(ch.id, pin=True)
+    ents = [MessageEntity(type="bold", offset=0, length=5)]
+    post.entities_json = svc.entities_to_json(ents)
+    bot = FakeSendBot()
+    result = await svc.send_post(bot, db, post, ch)
+    assert len(bot.sent) == 1
+    sent = bot.sent[0]
+    media = sent["media"]
+    assert len(media) == 3
+    assert sent["disable_notification"] is False
+    # caption + entities ride on the FIRST item only
+    assert media[0].caption == "کپشن آلبوم"
+    assert media[0].caption_entities == ents
+    assert media[1].caption is None and media[2].caption is None
+    # message ids from the group; the first one is pinned
+    assert len(result.message_ids) == 3
+    assert result.message_id == result.message_ids[0]
+    assert bot.pinned[0]["message_id"] == result.message_id
+
+
+async def test_send_post_album_premium_fallback(db):
+    ch = await _channel(db)
+    ents = [{"type": "custom_emoji", "offset": 0, "length": 2, "custom_emoji_id": "531"}]
+    post = _album_post(ch.id)
+    post.text = "🎉 سلام"
+    post.entities_json = json.dumps(ents)
+    bot = FakeSendBot(fail_on_custom_emoji=True)
+    result = await svc.send_post(bot, db, post, ch, fallback_notify_chat_id=99)
+    assert result.used_fallback is True
+    assert len(bot.sent) == 2  # retry + warning DM
+    retry_media = bot.sent[0]["media"]
+    # custom-emoji entities stripped (and omitted entirely once empty)
+    assert not retry_media[0].caption_entities
+    assert bot.sent[1]["chat_id"] == 99
+
+
+async def test_send_post_delete_previous_album(db):
+    ch = await _channel(db)
+    prev = await store.create_channel_post(
+        db, channel_id=ch.id, created_by=1, status="sent", text="old", buttons_json="[]"
+    )
+    await store.update_channel_post(
+        db,
+        prev.id,
+        tg_message_id=55,
+        tg_message_ids_json="[55, 56, 57]",
+        sent_at="2026-01-01T00:00:00+00:00",
+    )
+    post = _album_post(ch.id, id=2, delete_previous=True)
+    bot = FakeSendBot()
+    await svc.send_post(bot, db, post, ch)
+    assert bot.deleted == [(-100123, 55), (-100123, 56), (-100123, 57)]
+
+
+async def test_dispatch_recurring_album_sends_and_records_ids(db):
+    ch = await _channel(db)
+    now = datetime.now(UTC)
+    post = await store.create_channel_post(
+        db,
+        channel_id=ch.id,
+        created_by=1,
+        status="recurring",
+        text="rec",
+        media_type="album",
+        media_json=json.dumps(
+            [{"type": "photo", "file_id": "A"}, {"type": "photo", "file_id": "B"}]
+        ),
+        buttons_json="[]",
+        scheduled_at=now.isoformat(),
+        recurrence="daily",
+        recur_at="09:00",
+    )
+    bot = FakeSendBot()
+    assert await svc.dispatch_due_posts(bot, db) == 1
+    updated = await store.get_channel_post(db, post.id)
+    assert updated.status == "recurring"
+    assert updated.tg_message_id is not None
+    assert json.loads(updated.tg_message_ids_json) == [
+        m.message_id for m in bot.sent[0]["media_group_ids"]
+    ]
+    assert svc.parse_dt(updated.scheduled_at) > now
+
+
+async def test_dispatch_expires_album_deletes_all_messages(db):
+    ch = await _channel(db)
+    past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    post = await store.create_channel_post(
+        db,
+        channel_id=ch.id,
+        created_by=1,
+        status="sent",
+        text="gone",
+        media_type="album",
+        media_json=json.dumps(
+            [{"type": "photo", "file_id": "A"}, {"type": "photo", "file_id": "B"}]
+        ),
+    )
+    await store.update_channel_post(
+        db, post.id, tg_message_id=70, tg_message_ids_json="[70, 71, 72]", expires_at=past
+    )
+    bot = FakeSendBot()
+    await svc.dispatch_due_posts(bot, db)
+    assert bot.deleted == [(-100123, 70), (-100123, 71), (-100123, 72)]
+    updated = await store.get_channel_post(db, post.id)
+    assert updated.status == "expired"
+    assert updated.tg_message_id is None
+    assert updated.tg_message_ids_json is None
+    assert updated.expires_at is None
+
+
+async def test_edit_published_album_caption(db):
+    ch = await _channel(db)
+    post = _album_post(ch.id, tg_message_id=42, tg_message_ids_json="[42, 43, 44]")
+
+    edits: list[dict] = []
+
+    class AlbumEditBot:
+        async def edit_message_caption(self, **kwargs):
+            # real signature: no link_preview_options; albums carry no keyboard
+            assert "link_preview_options" not in kwargs
+            assert "reply_markup" not in kwargs
+            edits.append(kwargs)
+
+    assert await svc.edit_published_post(AlbumEditBot(), post, ch) is True
+    assert edits[0]["caption"] == "کپشن آلبوم"
+    assert edits[0]["message_id"] == 42
+
+
+async def test_send_preview_album(db):
+    ch = await _channel(db)
+    post = _album_post(ch.id)
+    bot = FakeSendBot()
+    await svc.send_preview(bot, 777, post)
+    assert bot.sent[0]["chat_id"] == 777
+    assert len(bot.sent[0]["media"]) == 3
 
 
 # ── presentation ─────────────────────────────────────────────────────────────

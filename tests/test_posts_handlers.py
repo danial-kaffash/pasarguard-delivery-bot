@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -15,6 +16,8 @@ from bot.handlers.posts import (
     PostsCB,
     PostWizard,
     _apply_layout,
+    _content_fields,
+    _content_menu,
     cmd_checkpremium,
     cmd_newpost,
     cmd_posts,
@@ -22,14 +25,19 @@ from bot.handlers.posts import (
     input_button_url,
     input_check_premium,
     input_content,
+    input_edit_media,
     input_edit_text,
     input_reschedule,
     input_schedule_time,
     on_button_style,
     on_channel_toggle,
     on_confirm,
+    on_content_menu,
     on_newpost_shortcut,
     on_post_action,
+    on_template_delete,
+    on_template_pick,
+    on_templates_list,
     on_wizard_next,
     parse_layout,
     render_posts_view,
@@ -88,8 +96,10 @@ class FakeMsg:
         video=None,
         animation=None,
         caption=None,
+        media_group_id=None,
     ):
         self.text = text
+        self.media_group_id = media_group_id
         self.entities = entities
         self.caption = entities and None or caption
         self.photo = photo
@@ -249,7 +259,7 @@ async def test_input_content_text_with_entities():
 
 
 async def test_input_content_photo_with_caption():
-    photo = [SimpleNamespace(file_id="PH1")]
+    photo = [SimpleNamespace(file_id="PH1", file_unique_id="PHU1")]
     msg = FakeMsg(text=None, photo=photo, caption="کپشن")
     msg.caption = "کپشن"
     state = FakeState()
@@ -779,3 +789,261 @@ async def test_panel_view_posts_renders_list(db):
     # a back-to-channel button is appended for panel navigation
     last_row = message.edits[0][1]["reply_markup"].inline_keyboard[-1]
     assert any("بازگشت" in b.text for b in last_row)
+
+
+# ── albums (media groups) ────────────────────────────────────────────────────
+
+
+def _photo(file_id: str, unique: str | None = None):
+    return [SimpleNamespace(file_id=file_id, file_unique_id=unique or file_id)]
+
+
+async def test_input_content_album_accumulation():
+    state = FakeState()
+    state.data = {"wizard": True, "selected": [1]}
+    await input_content(FakeMsg(text=None, photo=_photo("A1", "u1"), media_group_id="g1"), state)
+    await input_content(FakeMsg(text=None, photo=_photo("A2", "u2"), media_group_id="g1"), state)
+    # duplicate delivery of the same item is ignored
+    await input_content(FakeMsg(text=None, photo=_photo("A1", "u1"), media_group_id="g1"), state)
+    assert len(state.data["media_items"]) == 2
+    assert state.data["media_items"][0] == {"type": "photo", "file_id": "A1", "unique": "u1"}
+
+    # a text message while an album is assembled updates the caption only
+    await input_content(FakeMsg("کپشن آلبوم"), state)
+    assert state.data["text"] == "کپشن آلبوم"
+    assert len(state.data["media_items"]) == 2
+
+    fields = _content_fields(state.data)
+    assert fields["media_type"] == "album"
+    assert fields["media_file_id"] is None
+    assert json.loads(fields["media_json"]) == [
+        {"type": "photo", "file_id": "A1"},
+        {"type": "photo", "file_id": "A2"},
+    ]
+
+
+async def test_input_content_single_media_replaces_album():
+    state = FakeState()
+    state.data = {"wizard": True}
+    await input_content(FakeMsg(text=None, photo=_photo("A1", "u1"), media_group_id="g1"), state)
+    await input_content(FakeMsg(text=None, photo=_photo("SOLO"), media_group_id=None), state)
+    assert state.data["media_items"] is None
+    assert state.data["media_type"] == "photo"
+    assert state.data["media_file_id"] == "SOLO"
+
+
+def test_content_fields_single_item_from_group():
+    # a 1-item "album" degenerates to a single-media post
+    fields = _content_fields({"media_items": [{"type": "photo", "file_id": "X", "unique": "u"}]})
+    assert fields["media_type"] == "photo"
+    assert fields["media_file_id"] == "X"
+    assert fields["media_json"] is None
+
+
+async def test_wizard_next_buttons_skipped_for_album():
+    cb = fake_cb(FakePanelMessage(), cb_data("next", extra="buttons"))
+    state = FakeState()
+    state.data = {
+        "selected": [1],
+        "media_items": [{"type": "photo", "file_id": "A"}, {"type": "photo", "file_id": "B"}],
+        "opts": {
+            "delete_previous": False,
+            "pin": False,
+            "silent": False,
+            "link_preview": True,
+            "ephemeral_hours": None,
+        },
+    }
+    await on_wizard_next(cb, cb_data("next", extra="buttons"), state=state)
+    assert state.state == PostWizard.menu
+    cb.answer.assert_awaited_once()
+    assert "دکمه ندارند" in cb.answer.await_args.args[0]
+
+
+async def test_confirm_album_creates_and_sends(db):
+    ch = await _setup(db)
+    state = FakeState()
+    state.data = _wizard_data(
+        ch.id,
+        media_items=[
+            {"type": "photo", "file_id": "A1", "unique": "u1"},
+            {"type": "photo", "file_id": "A2", "unique": "u2"},
+        ],
+        buttons=[],
+    )
+    bot = FakeChannelBot()
+    cb = fake_cb(FakePanelMessage(), cb_data("confirm"), bot=bot)
+    await on_confirm(cb, state=state, db=db, settings=SETTINGS)
+    posts = await store.list_channel_posts(db, ch.id)
+    assert len(posts) == 1
+    post = posts[0]
+    assert post.media_type == "album"
+    assert json.loads(post.media_json) == [
+        {"type": "photo", "file_id": "A1"},
+        {"type": "photo", "file_id": "A2"},
+    ]
+    assert post.status == "sent"
+    assert post.tg_message_id is not None
+    assert json.loads(post.tg_message_ids_json) == [
+        m.message_id for m in bot.sent[0]["media_group_ids"]
+    ]
+
+
+# ── template picker ──────────────────────────────────────────────────────────
+
+
+def test_content_menu_has_templates_button():
+    kb = _content_menu()
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert any("قالب" in lbl for lbl in labels)
+
+
+async def _template(db, **kw):
+    return await store.create_post_template(db, created_by=1, name="قالب تست", **kw)
+
+
+async def test_templates_list_and_pick(db):
+    await _template(
+        db,
+        text="متن قالب",
+        buttons_json=json.dumps([{"label": "b", "action": {"type": "disabled"}, "row": 0}]),
+    )
+
+    state = FakeState()
+    state.data = {"wizard": True}
+    msg = FakePanelMessage()
+    cb = fake_cb(msg, cb_data("tpllist"))
+    await on_templates_list(cb, state=state, db=db)
+    assert "قالب تست" in msg.edits[0][0]
+    actions = [
+        b.callback_data for row in msg.edits[0][1]["reply_markup"].inline_keyboard for b in row
+    ]
+    assert any("tpl" in a for a in actions)
+
+    tpl = (await store.list_post_templates(db))[0]
+    cb2 = fake_cb(FakePanelMessage(), cb_data("tpl", tpl.id))
+    state2 = FakeState()
+    state2.data = {"wizard": True, "selected": [1]}
+    await on_template_pick(cb2, cb_data("tpl", tpl.id), state=state2, db=db)
+    assert state2.data["text"] == "متن قالب"
+    assert state2.data["buttons"][0]["label"] == "b"
+    assert state2.state == PostWizard.content
+
+
+async def test_template_pick_album(db):
+    await _template(
+        db,
+        media_type="album",
+        media_json=json.dumps(
+            [{"type": "photo", "file_id": "A"}, {"type": "photo", "file_id": "B"}]
+        ),
+    )
+    tpl = (await store.list_post_templates(db))[0]
+    state = FakeState()
+    state.data = {"wizard": True}
+    cb = fake_cb(FakePanelMessage(), cb_data("tpl", tpl.id))
+    await on_template_pick(cb, cb_data("tpl", tpl.id), state=state, db=db)
+    assert len(state.data["media_items"]) == 2
+    assert state.data["media_type"] is None
+
+
+async def test_template_delete(db):
+    await _template(db, text="x")
+    tpl = (await store.list_post_templates(db))[0]
+    state = FakeState()
+    state.data = {"wizard": True}
+    cb = fake_cb(FakePanelMessage(), cb_data("tpldel", tpl.id))
+    await on_template_delete(cb, cb_data("tpldel", tpl.id), state=state, db=db)
+    assert await store.list_post_templates(db) == []
+    assert state.state == PostWizard.content  # back to the content menu
+
+
+async def test_templates_list_empty_alerts():
+    state = FakeState()
+    state.data = {"wizard": True}
+    cb = fake_cb(FakePanelMessage(), cb_data("tpllist"))
+    # no db needed: any connection works — use a throwaway via None-safe path
+    import tempfile
+    from pathlib import Path
+
+    conn = await store.connect(Path(tempfile.mkdtemp()) / "t.db")
+    await on_templates_list(cb, state=state, db=conn)
+    cb.answer.assert_awaited_once()
+    assert cb.answer.await_args.kwargs.get("show_alert") is True
+    await conn.close()
+
+
+async def test_contentmenu_returns_to_content():
+    cb = fake_cb(FakePanelMessage(), cb_data("contentmenu"))
+    state = FakeState()
+    await on_content_menu(cb, state=state)
+    assert state.state == PostWizard.content
+    assert "محتوا" in cb.message.edits[0][0]
+
+
+# ── media swap ───────────────────────────────────────────────────────────────
+
+
+async def test_swapmedia_published_deletes_and_resends(db):
+    ch = await _setup(db)
+    post = await _published_post(db, ch)  # tg_message_id=77
+    state = FakeState()
+    cb = fake_cb(FakePanelMessage(), cb_data("pact", post.id, "swapmedia"))
+    await on_post_action(
+        cb, cb_data("pact", post.id, "swapmedia"), state=state, db=db, settings=SETTINGS
+    )
+    assert state.state == PostWizard.edit_media
+
+    msg = FakeMsg(text=None, photo=_photo("NEWPHOTO"), caption="کپشن جدید")
+    msg.caption = "کپشن جدید"
+    await input_edit_media(msg, state, db)
+    updated = await store.get_channel_post(db, post.id)
+    assert updated.media_type == "photo"
+    assert updated.media_file_id == "NEWPHOTO"
+    assert updated.text == "کپشن جدید"
+    assert updated.tg_message_id != 77  # new message id
+    assert (-100123, 77) in msg.bot.deleted  # old message removed
+    assert msg.bot.sent[0]["photo"] == "NEWPHOTO"
+    assert "تعویض شد" in msg.texts[0]
+    assert state.state is None
+
+
+async def test_swapmedia_scheduled_updates_fields_only(db):
+    ch = await _setup(db)
+    post = await store.create_channel_post(
+        db,
+        channel_id=ch.id,
+        created_by=1,
+        status="scheduled",
+        text="x",
+        scheduled_at=(datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+    )
+    state = FakeState()
+    state.data = {"swap_post_id": post.id}
+    msg = FakeMsg(text=None, photo=_photo("LATER"))
+    await input_edit_media(msg, state, db)
+    updated = await store.get_channel_post(db, post.id)
+    assert updated.media_file_id == "LATER"
+    assert updated.status == "scheduled"
+    assert msg.bot.sent == []  # nothing sent yet
+
+
+async def test_swapmedia_rejects_text(db):
+    ch = await _setup(db)
+    post = await _published_post(db, ch)
+    state = FakeState()
+    state.state = PostWizard.edit_media
+    state.data = {"swap_post_id": post.id}
+    msg = FakeMsg("فقط متن")
+    await input_edit_media(msg, state, db)
+    assert "❌" in msg.texts[0]
+    assert state.state == PostWizard.edit_media  # still waiting for media
+
+
+def test_post_menu_has_swap_button():
+    from bot.handlers.posts import _post_menu
+
+    post = SimpleNamespace(status="sent", tg_message_id=5, id=1, channel_id=1, media_type="photo")
+    kb = _post_menu(post)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert any("تعویض رسانه" in lbl for lbl in labels)

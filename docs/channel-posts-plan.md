@@ -61,8 +61,12 @@ Persian admin UX consistent with the rest of the bot.
 2. **Content** — the admin sends the post to the bot:
    - text message, or photo/video/animation **with caption**, or a forward
      (copied, forward header stripped);
+   - **media groups (albums)**: send 2–10 items as one Telegram album —
+     the wizard accumulates the group's items, deduplicates them, and sends
+     via `sendMediaGroup` (albums cannot carry buttons — see §8);
    - the message's `entities` (bold/links/…) including **custom-emoji spans
-     are preserved verbatim** — the post renders exactly like the preview.
+     are preserved verbatim** — the post renders exactly like the preview;
+   - «📚 قالب‌ها» loads a saved template as the starting draft.
 3. **Button builder** (loop until done):
    - label (may itself contain a premium emoji: we extract its
      `custom_emoji_id` as the button icon and use the plain text as label);
@@ -256,14 +260,34 @@ Promoted into v1 on 2026-08-27 (operator decision): ~~ephemeral posts~~ ·
 ~~edit published in place~~ · ~~recurring schedules~~ · ~~templates /
 reuse-last-post~~ · ~~multi-channel send~~ · ~~copy-last-post~~.
 
+Promoted in the v1.1 slice (same day, after operator sign-off on Persian
+strings): ~~media groups (albums)~~ · ~~template browsing/picking UI~~ ·
+~~editing published media (swap via delete + repost)~~.
+
+Album notes (platform constraints, by design):
+
+- Albums send via `sendMediaGroup`, which accepts **no reply markup at all**
+  — album posts cannot have buttons. The wizard detects an album and skips
+  the button/layout steps (with a notice).
+- Caption + entities ride on the first item only (Telegram model).
+- All group message ids are stored (`tg_message_ids_json`) so pin (first
+  message), delete-previous, ephemeral expiry and post deletion cover the
+  whole album; in-place editing edits the caption of the first message.
+- Premium-emoji fallback applies to album captions too.
+
+Media swap («🔄 تعویض رسانه»): a new single photo/video/animation replaces
+the post's media. When the post is published, the old message(s) are deleted
+and the new one sent in place — without advancing a recurring post's
+schedule. When only scheduled, just the stored fields change.
+
+Template picker («📚 قالب‌ها» in the content step): lists saved templates
+(preview + load + delete); loading one preloads content, buttons and options
+into the wizard — everything stays editable afterwards.
+
 Still deferred:
 
 - **Keep-last-N retention** per channel.
-- Media groups (albums).
 - Button `pay` / Stars.
-- Template *browsing/picking* UI (templates are currently only written by
-  the wizard toggle; a "start from template" picker is future work).
-- Editing published **media** (swap photo/video) — needs delete + repost.
 
 ---
 

@@ -155,15 +155,17 @@ Trial setting fields for `/settrial`: `data_limit_gb`, `days`, `grace`, `regrant
 
 Publish arbitrary posts through the bot — immediate, scheduled, or recurring
 (daily/weekly at HH:MM, Tehran time). The `/newpost` wizard walks through
-content (text / photo / video / animation / forward — formatting and premium
-emojis preserved), inline buttons (URL / no-op / copy-to-clipboard, native
-green/red/blue colors, premium-emoji icons), layout, options
-(delete-previous, pin, silent, link preview, ephemeral auto-delete 1–24h),
-schedule and a live preview before confirming. One post can fan out to
-several channels at once. `/posts` lists a channel's posts and can send now,
-cancel, reschedule, edit the published text in place, copy as new, or delete.
-Design details: `docs/channel-posts-plan.md`. `/checkpremium` checks whether
-this bot can send premium emojis (requires a Fragment username).
+content (text / photo / video / animation / forward / **media-group albums**
+— formatting and premium emojis preserved), inline buttons (URL / no-op /
+copy-to-clipboard, native green/red/blue colors, premium-emoji icons),
+layout, options (delete-previous, pin, silent, link preview, ephemeral
+auto-delete 1–24h), schedule and a live preview before confirming — or start
+from a **saved template** («📚 قالب‌ها»). One post can fan out to several
+channels at once. `/posts` lists a channel's posts and can send now, cancel,
+reschedule, edit the published text in place, **swap the media**, copy as
+new, or delete. Design details: `docs/channel-posts-plan.md`.
+`/checkpremium` checks whether this bot can send premium emojis (requires a
+Fragment username).
 
 ---
 

@@ -13,7 +13,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The local gate (`scripts/devenv.sh check`) runs before every commit and
   enforces the same checks (lint, format, tests, coverage).
 
+### Fixed
+
+- **Media posts crashed on send/preview** (production, 2026-08-27):
+  `Bot.send_photo() got an unexpected keyword argument 'link_preview_options'`
+  — the send-kwargs builder attached `link_preview_options` to media methods
+  that don't accept it (send_photo/video/animation). The same latent bug
+  existed in published-post editing (`edit_message_caption` also rejects it).
+  `link_preview_options` is now only passed to text methods
+  (`send_message` / `edit_message_text`); the test fakes now mirror the real
+  signatures so any regression fails loudly. Regression tests demonstrated
+  against the pre-fix code (both failed before, pass after).
+
 ### Added
+
+- **Channel posts v1.1 slice:**
+  - **Media groups (albums)** — send 2–10 photos/videos as one Telegram
+    album; items accumulate in the wizard (deduplicated), sent via
+    `sendMediaGroup` with the caption on the first item. All message ids are
+    tracked so pin / delete-previous / ephemeral expiry / deletion cover the
+    whole album. Albums cannot have buttons (Telegram limitation) — the
+    wizard skips the button steps with a notice. Premium-emoji fallback and
+    in-place caption editing both work for albums.
+  - **Template picker** — «📚 قالب‌ها» in the wizard's content step lists
+    saved templates with load/delete buttons; loading preloads content,
+    buttons and options (all still editable).
+  - **Media swap** — «🔄 تعویض رسانه» on any active post: send a new
+    photo/video/animation; published posts get the old message deleted and
+    the new one sent in place (recurring schedules are NOT advanced);
+    scheduled posts just update the stored fields.
+  - Storage: `channel_posts.media_json` + `tg_message_ids_json` and
+    `post_templates.media_json` columns (additive, idempotent migration).
 
 - **Channel posts feature (v1)** — `/newpost` wizard, `/posts` management,
   `/checkpremium` diagnostic, and a 30-second posts scheduler:
