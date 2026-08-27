@@ -159,7 +159,11 @@ async def _migrate(db: aiosqlite.Connection) -> None:
     """Idempotent migrations for columns added after the initial schema."""
     _migrations = [
         # (column, table, definition)
-        ("source", "trial_grants", "ALTER TABLE trial_grants ADD COLUMN source TEXT NOT NULL DEFAULT 'start'"),
+        (
+            "source",
+            "trial_grants",
+            "ALTER TABLE trial_grants ADD COLUMN source TEXT NOT NULL DEFAULT 'start'",
+        ),
         ("channel_id", "trial_grants", "ALTER TABLE trial_grants ADD COLUMN channel_id INTEGER"),
     ]
     for _col, _table, sql in _migrations:
@@ -411,9 +415,11 @@ async def record_grant(
     """Insert or replace the grant row for this Telegram user."""
     await db.execute(
         "INSERT INTO trial_grants (tg_user_id, tg_username, panel_username, panel_user_id, "
-        "group_ids, data_limit, expire_at, created_at, source_chat_id, revoked, source, channel_id) "
+        "group_ids, data_limit, expire_at, created_at, source_chat_id, revoked, source, "
+        "channel_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) "
-        "ON CONFLICT(tg_user_id) DO UPDATE SET tg_username = excluded.tg_username, "
+        "ON CONFLICT(tg_user_id) DO UPDATE SET "
+        "tg_username = excluded.tg_username, "
         "panel_username = excluded.panel_username, panel_user_id = excluded.panel_user_id, "
         "group_ids = excluded.group_ids, data_limit = excluded.data_limit, "
         "expire_at = excluded.expire_at, created_at = excluded.created_at, "
@@ -556,24 +562,38 @@ async def create_panel(
         "INSERT INTO panels (name, base_url, admin_username, admin_password, "
         "verify_ssl, timeout_seconds, protocols, auto_delete_days, active, created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
-        (name, base_url, admin_username, encrypted_pw,
-         int(verify_ssl), timeout_seconds, protocols, auto_delete_days, now, now),
+        (
+            name,
+            base_url,
+            admin_username,
+            encrypted_pw,
+            int(verify_ssl),
+            timeout_seconds,
+            protocols,
+            auto_delete_days,
+            now,
+            now,
+        ),
     )
     await db.commit()
     panel_id = cursor.lastrowid
     return Panel(
-        id=panel_id, name=name, base_url=base_url,
-        admin_username=admin_username, admin_password=admin_password,
-        verify_ssl=verify_ssl, timeout_seconds=timeout_seconds,
-        protocols=protocols, auto_delete_days=auto_delete_days, active=True,
+        id=panel_id,
+        name=name,
+        base_url=base_url,
+        admin_username=admin_username,
+        admin_password=admin_password,
+        verify_ssl=verify_ssl,
+        timeout_seconds=timeout_seconds,
+        protocols=protocols,
+        auto_delete_days=auto_delete_days,
+        active=True,
     )
 
 
 async def get_panel(db: aiosqlite.Connection, panel_id: int) -> Panel | None:
     """Fetch a panel by id (password is decrypted)."""
-    rows = await db.execute_fetchall(
-        "SELECT * FROM panels WHERE id = ?", (panel_id,)
-    )
+    rows = await db.execute_fetchall("SELECT * FROM panels WHERE id = ?", (panel_id,))
     if not rows:
         return None
     return _row_to_panel(rows[0])
@@ -582,17 +602,13 @@ async def get_panel(db: aiosqlite.Connection, panel_id: int) -> Panel | None:
 async def list_panels(db: aiosqlite.Connection, *, active_only: bool = True) -> list[Panel]:
     """List all panels (passwords decrypted)."""
     if active_only:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM panels WHERE active = 1 ORDER BY id"
-        )
+        rows = await db.execute_fetchall("SELECT * FROM panels WHERE active = 1 ORDER BY id")
     else:
         rows = await db.execute_fetchall("SELECT * FROM panels ORDER BY id")
     return [_row_to_panel(r) for r in rows]
 
 
-async def update_panel(
-    db: aiosqlite.Connection, panel_id: int, **fields
-) -> bool:
+async def update_panel(db: aiosqlite.Connection, panel_id: int, **fields) -> bool:
     """Update specific fields on a panel. Returns True if a row was changed.
 
     Accepted fields: name, base_url, admin_username, admin_password,
@@ -600,8 +616,15 @@ async def update_panel(
     Password is encrypted automatically.
     """
     allowed = {
-        "name", "base_url", "admin_username", "admin_password",
-        "verify_ssl", "timeout_seconds", "protocols", "auto_delete_days", "active",
+        "name",
+        "base_url",
+        "admin_username",
+        "admin_password",
+        "verify_ssl",
+        "timeout_seconds",
+        "protocols",
+        "auto_delete_days",
+        "active",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
@@ -615,9 +638,7 @@ async def update_panel(
     updates["updated_at"] = _now()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [panel_id]
-    cursor = await db.execute(
-        f"UPDATE panels SET {set_clause} WHERE id = ?", values
-    )
+    cursor = await db.execute(f"UPDATE panels SET {set_clause} WHERE id = ?", values)
     await db.commit()
     return cursor.rowcount > 0
 
@@ -687,31 +708,43 @@ async def create_channel(
         "active, created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         (
-            tg_channel_id, title, trial_data_limit_gb, trial_days,
-            on_hold_grace_days, allow_regrant_after_days, trial_max_member_age_days,
-            join_approval_delay_seconds, promo_interval_hours,
-            int(promo_pin), int(promo_silent), now, now,
+            tg_channel_id,
+            title,
+            trial_data_limit_gb,
+            trial_days,
+            on_hold_grace_days,
+            allow_regrant_after_days,
+            trial_max_member_age_days,
+            join_approval_delay_seconds,
+            promo_interval_hours,
+            int(promo_pin),
+            int(promo_silent),
+            now,
+            now,
         ),
     )
     await db.commit()
     ch_id = cursor.lastrowid
     return Channel(
-        id=ch_id, tg_channel_id=tg_channel_id, title=title,
-        trial_data_limit_gb=trial_data_limit_gb, trial_days=trial_days,
+        id=ch_id,
+        tg_channel_id=tg_channel_id,
+        title=title,
+        trial_data_limit_gb=trial_data_limit_gb,
+        trial_days=trial_days,
         on_hold_grace_days=on_hold_grace_days,
         allow_regrant_after_days=allow_regrant_after_days,
         trial_max_member_age_days=trial_max_member_age_days,
         join_approval_delay_seconds=join_approval_delay_seconds,
         promo_interval_hours=promo_interval_hours,
-        promo_pin=promo_pin, promo_silent=promo_silent, active=True,
+        promo_pin=promo_pin,
+        promo_silent=promo_silent,
+        active=True,
     )
 
 
 async def get_channel(db: aiosqlite.Connection, channel_db_id: int) -> Channel | None:
     """Fetch a channel by its internal DB id."""
-    rows = await db.execute_fetchall(
-        "SELECT * FROM channels WHERE id = ?", (channel_db_id,)
-    )
+    rows = await db.execute_fetchall("SELECT * FROM channels WHERE id = ?", (channel_db_id,))
     if not rows:
         return None
     return _row_to_channel(rows[0])
@@ -730,9 +763,7 @@ async def get_channel_by_tg_id(db: aiosqlite.Connection, tg_channel_id: int) -> 
 async def list_channels(db: aiosqlite.Connection, *, active_only: bool = True) -> list[Channel]:
     """List all channels."""
     if active_only:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM channels WHERE active = 1 ORDER BY id"
-        )
+        rows = await db.execute_fetchall("SELECT * FROM channels WHERE active = 1 ORDER BY id")
     else:
         rows = await db.execute_fetchall("SELECT * FROM channels ORDER BY id")
     return [_row_to_channel(r) for r in rows]
@@ -741,10 +772,17 @@ async def list_channels(db: aiosqlite.Connection, *, active_only: bool = True) -
 async def update_channel(db: aiosqlite.Connection, channel_id: int, **fields) -> bool:
     """Update specific fields on a channel. Returns True if a row was changed."""
     allowed = {
-        "title", "trial_data_limit_gb", "trial_days", "on_hold_grace_days",
-        "allow_regrant_after_days", "trial_max_member_age_days",
-        "join_approval_delay_seconds", "promo_interval_hours",
-        "promo_pin", "promo_silent", "active",
+        "title",
+        "trial_data_limit_gb",
+        "trial_days",
+        "on_hold_grace_days",
+        "allow_regrant_after_days",
+        "trial_max_member_age_days",
+        "join_approval_delay_seconds",
+        "promo_interval_hours",
+        "promo_pin",
+        "promo_silent",
+        "active",
     }
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
@@ -758,9 +796,7 @@ async def update_channel(db: aiosqlite.Connection, channel_id: int, **fields) ->
     updates["updated_at"] = _now()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [channel_id]
-    cursor = await db.execute(
-        f"UPDATE channels SET {set_clause} WHERE id = ?", values
-    )
+    cursor = await db.execute(f"UPDATE channels SET {set_clause} WHERE id = ?", values)
     await db.commit()
     return cursor.rowcount > 0
 
@@ -826,9 +862,7 @@ async def upsert_user(
 
 async def get_user(db: aiosqlite.Connection, tg_user_id: int) -> User | None:
     """Fetch a user by Telegram id."""
-    rows = await db.execute_fetchall(
-        "SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,)
-    )
+    rows = await db.execute_fetchall("SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,))
     if not rows:
         return None
     r = rows[0]
@@ -861,9 +895,7 @@ async def delete_user(db: aiosqlite.Connection, tg_user_id: int) -> bool:
 # ── channel_admins ──────────────────────────────────────────────────────────
 
 
-async def assign_channel_admin(
-    db: aiosqlite.Connection, tg_user_id: int, channel_id: int
-) -> None:
+async def assign_channel_admin(db: aiosqlite.Connection, tg_user_id: int, channel_id: int) -> None:
     """Assign a user as admin of a channel. No-op if already assigned."""
     await db.execute(
         "INSERT OR IGNORE INTO channel_admins (tg_user_id, channel_id, created_at) "
@@ -885,9 +917,7 @@ async def unassign_channel_admin(
     return cursor.rowcount > 0
 
 
-async def list_user_channels(
-    db: aiosqlite.Connection, tg_user_id: int
-) -> list[Channel]:
+async def list_user_channels(db: aiosqlite.Connection, tg_user_id: int) -> list[Channel]:
     """List channels a user is assigned to as admin."""
     rows = await db.execute_fetchall(
         "SELECT c.* FROM channels c "
@@ -899,9 +929,7 @@ async def list_user_channels(
     return [_row_to_channel(r) for r in rows]
 
 
-async def list_channel_admins(
-    db: aiosqlite.Connection, channel_id: int
-) -> list[User]:
+async def list_channel_admins(db: aiosqlite.Connection, channel_id: int) -> list[User]:
     """List users who are admins of a channel."""
     rows = await db.execute_fetchall(
         "SELECT u.* FROM users u "
@@ -913,9 +941,7 @@ async def list_channel_admins(
     return [User(tg_user_id=r["tg_user_id"], role=r["role"], username=r["username"]) for r in rows]
 
 
-async def is_channel_admin(
-    db: aiosqlite.Connection, tg_user_id: int, channel_db_id: int
-) -> bool:
+async def is_channel_admin(db: aiosqlite.Connection, tg_user_id: int, channel_db_id: int) -> bool:
     """Check if a user is assigned as admin of a channel."""
     rows = await db.execute_fetchall(
         "SELECT 1 FROM channel_admins WHERE tg_user_id = ? AND channel_id = ?",
@@ -974,16 +1000,21 @@ async def upsert_channel_offer_group(
         sort_order = max_row[0]["m"] + 1
 
     await db.execute(
-        "INSERT INTO channel_offer_groups (channel_id, panel_id, group_id, label, sort_order, updated_at) "
+        "INSERT INTO channel_offer_groups "
+        "(channel_id, panel_id, group_id, label, sort_order, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(channel_id, panel_id, group_id) DO UPDATE SET "
-        "label = excluded.label, sort_order = excluded.sort_order, updated_at = excluded.updated_at",
+        "label = excluded.label, sort_order = excluded.sort_order, "
+        "updated_at = excluded.updated_at",
         (channel_id, panel_id, group_id, label, sort_order, _now()),
     )
     await db.commit()
     return ChannelOfferGroup(
-        channel_id=channel_id, panel_id=panel_id,
-        group_id=group_id, label=label, sort_order=sort_order,
+        channel_id=channel_id,
+        panel_id=panel_id,
+        group_id=group_id,
+        label=label,
+        sort_order=sort_order,
     )
 
 

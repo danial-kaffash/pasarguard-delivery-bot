@@ -11,9 +11,13 @@ from panel.manager import PanelManager
 
 def _panel(panel_id=1, name="NL", base_url="https://nl.test"):
     return SimpleNamespace(
-        id=panel_id, name=name, base_url=base_url,
-        admin_username="admin", admin_password="pw",
-        verify_ssl=True, timeout_seconds=15.0,
+        id=panel_id,
+        name=name,
+        base_url=base_url,
+        admin_username="admin",
+        admin_password="pw",
+        verify_ssl=True,
+        timeout_seconds=15.0,
     )
 
 

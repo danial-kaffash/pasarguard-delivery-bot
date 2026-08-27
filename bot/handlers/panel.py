@@ -22,11 +22,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from panel.manager import PanelManager
-from services import trial as trial_service
 from storage import db as store
 
-from .. import texts
-from ..handlers.join_request import get_join_delay
 from ..pause import (
     is_channel_joins_paused,
     is_channel_paused,
@@ -47,8 +44,8 @@ router = Router(name="panel")
 class PanelCB(CallbackData, prefix="pnl"):
     """Type-safe callback data for the management panel."""
 
-    action: str   # view, toggle, edit, confirm, back
-    target: str   # main, ch, promo, trial, join, offer, stats, panels, pnl_detail, pnl_*
+    action: str  # view, toggle, edit, confirm, back
+    target: str  # main, ch, promo, trial, join, offer, stats, panels, pnl_detail, pnl_*
     tid: int = 0
     extra: str = ""
 
@@ -60,6 +57,7 @@ class PanelCB(CallbackData, prefix="pnl"):
 
 class PanelInput(StatesGroup):
     """States for text input flows within the management panel."""
+
     # Channel settings
     waiting_promo_text = State()
     waiting_promo_int = State()
@@ -88,7 +86,9 @@ class PanelInput(StatesGroup):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _btn(text: str, action: str, target: str, tid: int = 0, extra: str = "") -> InlineKeyboardButton:
+def _btn(
+    text: str, action: str, target: str, tid: int = 0, extra: str = ""
+) -> InlineKeyboardButton:
     return InlineKeyboardButton(
         text=text,
         callback_data=PanelCB(action=action, target=target, tid=tid, extra=extra).pack(),
@@ -161,19 +161,24 @@ def build_panel_list_keyboard(panels: list[store.Panel]) -> InlineKeyboardMarkup
 
 def build_panel_detail_menu(p: store.Panel) -> InlineKeyboardMarkup:
     ssl_text = "🔒 SSL: ✅" if p.verify_ssl else "🔒 SSL: ❌"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(f"📝 {p.name}", "edit", "pnl_name", p.id)],
-        [_btn(f"🔗 {p.base_url}", "edit", "pnl_url", p.id)],
-        [_btn(f"👤 {p.admin_username}", "edit", "pnl_user", p.id)],
-        [_btn("🔑 تغییر رمز", "edit", "pnl_pass", p.id)],
-        [_btn(ssl_text, "toggle", "pnl_ssl", p.id)],
-        [_btn(f"⏱ Timeout: {p.timeout_seconds:g}s", "edit", "pnl_timeout", p.id)],
-        [_btn(f"🌐 Protocols: {p.protocols}", "edit", "pnl_protocols", p.id)],
-        [_btn(f"🗑 Auto-delete: {p.auto_delete_days}d", "edit", "pnl_autodel", p.id)],
-        [_btn("🗑 غیرفعال‌سازی", "confirm", "pnl_remove", p.id) if p.active else
-         _btn("✅ فعال‌سازی", "toggle", "pnl_activate", p.id)],
-        [_back_btn("panels")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(f"📝 {p.name}", "edit", "pnl_name", p.id)],
+            [_btn(f"🔗 {p.base_url}", "edit", "pnl_url", p.id)],
+            [_btn(f"👤 {p.admin_username}", "edit", "pnl_user", p.id)],
+            [_btn("🔑 تغییر رمز", "edit", "pnl_pass", p.id)],
+            [_btn(ssl_text, "toggle", "pnl_ssl", p.id)],
+            [_btn(f"⏱ Timeout: {p.timeout_seconds:g}s", "edit", "pnl_timeout", p.id)],
+            [_btn(f"🌐 Protocols: {p.protocols}", "edit", "pnl_protocols", p.id)],
+            [_btn(f"🗑 Auto-delete: {p.auto_delete_days}d", "edit", "pnl_autodel", p.id)],
+            [
+                _btn("🗑 غیرفعال‌سازی", "confirm", "pnl_remove", p.id)
+                if p.active
+                else _btn("✅ فعال‌سازی", "toggle", "pnl_activate", p.id)
+            ],
+            [_back_btn("panels")],
+        ]
+    )
 
 
 def build_channel_list_keyboard(channels: list[store.Channel]) -> InlineKeyboardMarkup:
@@ -181,54 +186,81 @@ def build_channel_list_keyboard(channels: list[store.Channel]) -> InlineKeyboard
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def build_channel_menu(ch: store.Channel, *, paused: bool, joins_paused: bool) -> InlineKeyboardMarkup:
+def build_channel_menu(
+    ch: store.Channel, *, paused: bool, joins_paused: bool
+) -> InlineKeyboardMarkup:
     pause_text = "▶️ فعال‌سازی" if paused else "⏸ توقف"
-    pin_text = "📌 Pin: ✅" if ch.promo_pin else "📌 Pin: ❌"
-    silent_text = "🔇 Silent: ✅" if ch.promo_silent else "🔇 Silent: ❌"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(pause_text, "toggle", "pause", ch.id)],
-        [_btn("📢 پرومو", "view", "promo", ch.id), _btn("🎁 تست‌ها", "view", "trial", ch.id)],
-        [_btn("🔗 درخواست‌ها", "view", "join", ch.id), _btn("🌐 گروه‌ها", "view", "offer", ch.id)],
-        [_btn("📊 آمار", "view", "stats", ch.id)],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(pause_text, "toggle", "pause", ch.id)],
+            [_btn("📢 پرومو", "view", "promo", ch.id), _btn("🎁 تست‌ها", "view", "trial", ch.id)],
+            [
+                _btn("🔗 درخواست‌ها", "view", "join", ch.id),
+                _btn("🌐 گروه‌ها", "view", "offer", ch.id),
+            ],
+            [_btn("📊 آمار", "view", "stats", ch.id)],
+        ]
+    )
 
 
 def build_promo_menu(ch: store.Channel) -> InlineKeyboardMarkup:
     pin_text = "📌 Pin: ✅" if ch.promo_pin else "📌 Pin: ❌"
     silent_text = "🔇 Silent: ✅" if ch.promo_silent else "🔇 Silent: ❌"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("📄 مشاهده متن", "view", "promo_text", ch.id)],
-        [_btn("✏️ تغییر متن", "edit", "promo_text", ch.id)],
-        [_btn(f"⏱ فاصله: {ch.promo_interval_hours:g}h", "edit", "promo_int", ch.id)],
-        [_btn(pin_text, "toggle", "promo_pin", ch.id), _btn(silent_text, "toggle", "promo_silent", ch.id)],
-        [_btn("📤 ارسال الان", "confirm", "promonow", ch.id)],
-        [_back_btn("ch", ch.id)],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn("📄 مشاهده متن", "view", "promo_text", ch.id)],
+            [_btn("✏️ تغییر متن", "edit", "promo_text", ch.id)],
+            [_btn(f"⏱ فاصله: {ch.promo_interval_hours:g}h", "edit", "promo_int", ch.id)],
+            [
+                _btn(pin_text, "toggle", "promo_pin", ch.id),
+                _btn(silent_text, "toggle", "promo_silent", ch.id),
+            ],
+            [_btn("📤 ارسال الان", "confirm", "promonow", ch.id)],
+            [_back_btn("ch", ch.id)],
+        ]
+    )
 
 
 def build_trial_menu(ch: store.Channel) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(f"📦 حجم: {ch.trial_data_limit_gb:g} GB", "edit", "trial_dl", ch.id)],
-        [_btn(f"📅 روزها: {ch.trial_days}", "edit", "trial_days", ch.id)],
-        [_btn(f"⏳ مهلت: {ch.on_hold_grace_days}d", "edit", "trial_grace", ch.id)],
-        [_btn(f"🔄 Cooldown: {ch.allow_regrant_after_days}d", "edit", "trial_regrant", ch.id)],
-        [_btn(f"🆕 Max age: {ch.trial_max_member_age_days:g}d", "edit", "trial_maxage", ch.id)],
-        [_btn("🗑 ریست کاربر", "edit", "trial_reset", ch.id)],
-        [_back_btn("ch", ch.id)],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(f"📦 حجم: {ch.trial_data_limit_gb:g} GB", "edit", "trial_dl", ch.id)],
+            [_btn(f"📅 روزها: {ch.trial_days}", "edit", "trial_days", ch.id)],
+            [_btn(f"⏳ مهلت: {ch.on_hold_grace_days}d", "edit", "trial_grace", ch.id)],
+            [_btn(f"🔄 Cooldown: {ch.allow_regrant_after_days}d", "edit", "trial_regrant", ch.id)],
+            [_btn(f"🆕 Max age: {ch.trial_max_member_age_days:g}d", "edit", "trial_maxage", ch.id)],
+            [_btn("🗑 ریست کاربر", "edit", "trial_reset", ch.id)],
+            [_back_btn("ch", ch.id)],
+        ]
+    )
 
 
 def build_join_menu(ch: store.Channel, joins_paused: bool) -> InlineKeyboardMarkup:
     pause_text = "▶️ فعال‌سازی" if joins_paused else "⏸ توقف"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn(pause_text, "toggle", "join_pause", ch.id)],
-        [_btn(f"⏱ تأخیر: {ch.join_approval_delay_seconds}s", "edit", "join_delay", ch.id)],
-        [_back_btn("ch", ch.id)],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(pause_text, "toggle", "join_pause", ch.id)],
+            [_btn(f"⏱ تأخیر: {ch.join_approval_delay_seconds}s", "edit", "join_delay", ch.id)],
+            [_back_btn("ch", ch.id)],
+        ]
+    )
 
 
-def build_offer_menu(ch: store.Channel, offers: list[store.ChannelOfferGroup]) -> InlineKeyboardMarkup:
-    rows = [[_btn(f"❌ {o.label} (p{o.panel_id}:g{o.group_id})", "confirm", "offer_del", ch.id, f"{o.panel_id}_{o.group_id}")] for o in offers]
+def build_offer_menu(
+    ch: store.Channel, offers: list[store.ChannelOfferGroup]
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _btn(
+                f"❌ {o.label} (p{o.panel_id}:g{o.group_id})",
+                "confirm",
+                "offer_del",
+                ch.id,
+                f"{o.panel_id}_{o.group_id}",
+            )
+        ]
+        for o in offers
+    ]
     rows.append([_btn("➕ افزودن گروه", "edit", "offer_add", ch.id)])
     if offers:
         rows.append([_btn("🧹 حذف همه", "confirm", "offer_clear", ch.id)])
@@ -245,11 +277,13 @@ def _main_menu(db_channels: list[store.Channel], *, is_super: bool) -> InlineKey
 
 
 def build_backup_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [_btn("💾 بکاپ دیتابیس (.db)", "confirm", "backup_db")],
-        [_btn("📤 خروجی تنظیمات (.json)", "confirm", "backup_export")],
-        [_back_btn("main")],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn("💾 بکاپ دیتابیس (.db)", "confirm", "backup_db")],
+            [_btn("📤 خروجی تنظیمات (.json)", "confirm", "backup_export")],
+            [_back_btn("main")],
+        ]
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -261,11 +295,18 @@ def build_backup_menu() -> InlineKeyboardMarkup:
 async def cmd_panel(message: Message, db: aiosqlite.Connection, settings) -> None:
     uid = message.from_user.id
     is_sup = await _is_super(db, uid, settings)
-    channels = await store.list_channels(db, active_only=True) if is_sup else await store.list_user_channels(db, uid)
+    channels = (
+        await store.list_channels(db, active_only=True)
+        if is_sup
+        else await store.list_user_channels(db, uid)
+    )
     if not channels:
         await message.answer("📺 هیچ کانالی برای مدیریت ندارید.")
         return
-    await message.answer("📺 <b>کانال مورد نظر را انتخاب کنید:</b>", reply_markup=_main_menu(channels, is_super=is_sup))
+    await message.answer(
+        "📺 <b>کانال مورد نظر را انتخاب کنید:</b>",
+        reply_markup=_main_menu(channels, is_super=is_sup),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -274,7 +315,13 @@ async def cmd_panel(message: Message, db: aiosqlite.Connection, settings) -> Non
 
 
 @router.callback_query(PanelCB.filter(F.action == "view"))
-async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite.Connection, state: FSMContext, settings) -> None:
+async def on_view(
+    callback: CallbackQuery,
+    callback_data: PanelCB,
+    db: aiosqlite.Connection,
+    state: FSMContext,
+    settings,
+) -> None:
     target, tid = callback_data.target, callback_data.tid
 
     if target == "ch":
@@ -285,50 +332,70 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
         paused = await is_channel_paused(db, ch.id)
         joins_paused = await is_channel_joins_paused(db, ch.id)
         status = "⏸ متوقف" if paused else "▶️ فعال"
-        await callback.message.edit_text(f"{_ch_header(ch)}\nوضعیت: {status}", reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused))
+        await callback.message.edit_text(
+            f"{_ch_header(ch)}\nوضعیت: {status}",
+            reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused),
+        )
 
     elif target == "promo":
         ch = await store.get_channel(db, tid)
         if ch:
-            await callback.message.edit_text(f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch))
+            await callback.message.edit_text(
+                f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch)
+            )
 
     elif target == "promo_text":
         ch = await store.get_channel(db, tid)
         if ch:
             from ..promo import get_channel_promo_text
+
             text = await get_channel_promo_text(db, ch.id)
-            await callback.message.edit_text(f"📄 <b>متن فعلی پرومو:</b>\n\n{text}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("promo", ch.id)]]), parse_mode=None)
+            await callback.message.edit_text(
+                f"📄 <b>متن فعلی پرومو:</b>\n\n{text}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("promo", ch.id)]]),
+                parse_mode=None,
+            )
 
     elif target == "trial":
         ch = await store.get_channel(db, tid)
         if ch:
-            await callback.message.edit_text(f"🎁 <b>تنظیمات تست — {_ch_label(ch)}</b>", reply_markup=build_trial_menu(ch))
+            await callback.message.edit_text(
+                f"🎁 <b>تنظیمات تست — {_ch_label(ch)}</b>", reply_markup=build_trial_menu(ch)
+            )
 
     elif target == "join":
         ch = await store.get_channel(db, tid)
         if ch:
             jp = await is_channel_joins_paused(db, ch.id)
-            await callback.message.edit_text(f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp))
+            await callback.message.edit_text(
+                f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp)
+            )
 
     elif target == "offer":
         ch = await store.get_channel(db, tid)
         if ch:
             offers = await store.list_channel_offer_groups(db, ch.id)
-            lines = [f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)]
-            text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + ("\n".join(lines) if lines else "خالی")
+            lines = [
+                f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)
+            ]
+            text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + (
+                "\n".join(lines) if lines else "خالی"
+            )
             await callback.message.edit_text(text, reply_markup=build_offer_menu(ch, offers))
 
     elif target == "stats":
         ch = await store.get_channel(db, tid)
         if ch:
-            from datetime import datetime, timedelta, UTC
-            now = datetime.now(UTC)
             members = await store.count_chat_members(db, ch.tg_channel_id)
             grants = await store.list_grants(db)
             ch_grants = [g for g in grants if g.channel_id == ch.id]
             paused = await is_channel_paused(db, ch.id)
+            status = "متوقف" if paused else "فعال"
             await callback.message.edit_text(
-                f"📊 <b>آمار — {_ch_label(ch)}</b>\n\n👥 اعضا: <b>{members}</b>\n🎁 تست‌ها: <b>{len(ch_grants)}</b>\n⏸ وضعیت: {'متوقف' if paused else 'فعال'}",
+                f"📊 <b>آمار — {_ch_label(ch)}</b>\n\n"
+                f"👥 اعضا: <b>{members}</b>\n"
+                f"🎁 تست‌ها: <b>{len(ch_grants)}</b>\n"
+                f"⏸ وضعیت: {status}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("ch", ch.id)]]),
             )
 
@@ -342,14 +409,21 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
     elif target == "panels":
         panels = await store.list_panels(db, active_only=False)
         if not panels:
-            await callback.message.edit_text("🖥 هیچ پنلی ثبت نشده.\nاز /addpanel استفاده کنید.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("main")]]))
+            await callback.message.edit_text(
+                "🖥 هیچ پنلی ثبت نشده.\nاز /addpanel استفاده کنید.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back_btn("main")]]),
+            )
         else:
-            await callback.message.edit_text("🖥 <b>پنل‌ها:</b>", reply_markup=build_panel_list_keyboard(panels))
+            await callback.message.edit_text(
+                "🖥 <b>پنل‌ها:</b>", reply_markup=build_panel_list_keyboard(panels)
+            )
 
     elif target == "pnl_detail":
         p = await store.get_panel(db, tid)
         if p:
-            await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
+            await callback.message.edit_text(
+                _panel_detail_text(p), reply_markup=build_panel_detail_menu(p)
+            )
 
     elif target == "backup_menu":
         await callback.message.edit_text(
@@ -361,8 +435,15 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
     elif target == "main":
         uid = callback.from_user.id
         is_sup = await _is_super(db, uid, settings)
-        channels = await store.list_channels(db, active_only=True) if is_sup else await store.list_user_channels(db, uid)
-        await callback.message.edit_text("📺 <b>کانال مورد نظر را انتخاب کنید:</b>", reply_markup=_main_menu(channels, is_super=is_sup))
+        channels = (
+            await store.list_channels(db, active_only=True)
+            if is_sup
+            else await store.list_user_channels(db, uid)
+        )
+        await callback.message.edit_text(
+            "📺 <b>کانال مورد نظر را انتخاب کنید:</b>",
+            reply_markup=_main_menu(channels, is_super=is_sup),
+        )
 
     await callback.answer()
 
@@ -373,48 +454,81 @@ async def on_view(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
 
 
 @router.callback_query(PanelCB.filter(F.action == "back"))
-async def on_back(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite.Connection, state: FSMContext, settings) -> None:
+async def on_back(
+    callback: CallbackQuery,
+    callback_data: PanelCB,
+    db: aiosqlite.Connection,
+    state: FSMContext,
+    settings,
+) -> None:
     await state.clear()
     target, tid = callback_data.target, callback_data.tid
 
     if target == "main":
         uid = callback.from_user.id
         is_sup = await _is_super(db, uid, settings)
-        channels = await store.list_channels(db, active_only=True) if is_sup else await store.list_user_channels(db, uid)
-        await callback.message.edit_text("📺 <b>کانال مورد نظر را انتخاب کنید:</b>", reply_markup=_main_menu(channels, is_super=is_sup))
+        channels = (
+            await store.list_channels(db, active_only=True)
+            if is_sup
+            else await store.list_user_channels(db, uid)
+        )
+        await callback.message.edit_text(
+            "📺 <b>کانال مورد نظر را انتخاب کنید:</b>",
+            reply_markup=_main_menu(channels, is_super=is_sup),
+        )
     elif target == "panels":
         panels = await store.list_panels(db, active_only=False)
-        await callback.message.edit_text("🖥 <b>پنل‌ها:</b>", reply_markup=build_panel_list_keyboard(panels) if panels else InlineKeyboardMarkup(inline_keyboard=[[_back_btn("main")]]))
+        await callback.message.edit_text(
+            "🖥 <b>پنل‌ها:</b>",
+            reply_markup=build_panel_list_keyboard(panels)
+            if panels
+            else InlineKeyboardMarkup(inline_keyboard=[[_back_btn("main")]]),
+        )
     elif target == "pnl_detail":
         p = await store.get_panel(db, tid)
         if p:
-            await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
+            await callback.message.edit_text(
+                _panel_detail_text(p), reply_markup=build_panel_detail_menu(p)
+            )
     elif target == "ch":
         ch = await store.get_channel(db, tid)
         if ch:
             paused = await is_channel_paused(db, ch.id)
             joins_paused = await is_channel_joins_paused(db, ch.id)
             status = "⏸ متوقف" if paused else "▶️ فعال"
-            await callback.message.edit_text(f"{_ch_header(ch)}\nوضعیت: {status}", reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused))
+            await callback.message.edit_text(
+                f"{_ch_header(ch)}\nوضعیت: {status}",
+                reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused),
+            )
     elif target == "promo":
         ch = await store.get_channel(db, tid)
         if ch:
-            await callback.message.edit_text(f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch))
+            await callback.message.edit_text(
+                f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch)
+            )
     elif target == "trial":
         ch = await store.get_channel(db, tid)
         if ch:
-            await callback.message.edit_text(f"🎁 <b>تنظیمات تست — {_ch_label(ch)}</b>", reply_markup=build_trial_menu(ch))
+            await callback.message.edit_text(
+                f"🎁 <b>تنظیمات تست — {_ch_label(ch)}</b>", reply_markup=build_trial_menu(ch)
+            )
     elif target == "join":
         ch = await store.get_channel(db, tid)
         if ch:
             jp = await is_channel_joins_paused(db, ch.id)
-            await callback.message.edit_text(f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp))
+            await callback.message.edit_text(
+                f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp)
+            )
     elif target == "offer":
         ch = await store.get_channel(db, tid)
         if ch:
             offers = await store.list_channel_offer_groups(db, ch.id)
-            lines = [f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)]
-            text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + ("\n".join(lines) if lines else "خالی")
+            lines = [
+                f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)
+            ]
+            text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + (
+                "\n".join(lines) if lines else "خالی"
+            )
             await callback.message.edit_text(text, reply_markup=build_offer_menu(ch, offers))
 
     await callback.answer()
@@ -426,7 +540,9 @@ async def on_back(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite
 
 
 @router.callback_query(PanelCB.filter(F.action == "toggle"))
-async def on_toggle(callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite.Connection) -> None:
+async def on_toggle(
+    callback: CallbackQuery, callback_data: PanelCB, db: aiosqlite.Connection
+) -> None:
     target, tid = callback_data.target, callback_data.tid
 
     if target == "pause":
@@ -436,42 +552,55 @@ async def on_toggle(callback: CallbackQuery, callback_data: PanelCB, db: aiosqli
             paused = await is_channel_paused(db, ch.id)
             joins_paused = await is_channel_joins_paused(db, ch.id)
             status = "⏸ متوقف" if paused else "▶️ فعال"
-            await callback.message.edit_text(f"{_ch_header(ch)}\nوضعیت: {status}", reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused))
+            await callback.message.edit_text(
+                f"{_ch_header(ch)}\nوضعیت: {status}",
+                reply_markup=build_channel_menu(ch, paused=paused, joins_paused=joins_paused),
+            )
 
     elif target == "promo_pin":
         ch = await store.get_channel(db, tid)
         if ch:
             await store.update_channel(db, ch.id, promo_pin=not ch.promo_pin)
             ch = await store.get_channel(db, ch.id)
-            await callback.message.edit_text(f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch))
+            await callback.message.edit_text(
+                f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch)
+            )
 
     elif target == "promo_silent":
         ch = await store.get_channel(db, tid)
         if ch:
             await store.update_channel(db, ch.id, promo_silent=not ch.promo_silent)
             ch = await store.get_channel(db, ch.id)
-            await callback.message.edit_text(f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch))
+            await callback.message.edit_text(
+                f"📢 <b>پرومو — {_ch_label(ch)}</b>", reply_markup=build_promo_menu(ch)
+            )
 
     elif target == "join_pause":
         ch = await store.get_channel(db, tid)
         if ch:
             await set_channel_joins_paused(db, ch.id, not await is_channel_joins_paused(db, ch.id))
             jp = await is_channel_joins_paused(db, ch.id)
-            await callback.message.edit_text(f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp))
+            await callback.message.edit_text(
+                f"🔗 <b>درخواست عضویت — {_ch_label(ch)}</b>", reply_markup=build_join_menu(ch, jp)
+            )
 
     elif target == "pnl_ssl":
         p = await store.get_panel(db, tid)
         if p:
             await store.update_panel(db, p.id, verify_ssl=not p.verify_ssl)
             p = await store.get_panel(db, p.id)
-            await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
+            await callback.message.edit_text(
+                _panel_detail_text(p), reply_markup=build_panel_detail_menu(p)
+            )
 
     elif target == "pnl_activate":
         p = await store.get_panel(db, tid)
         if p:
             await store.update_panel(db, p.id, active=True)
             p = await store.get_panel(db, p.id)
-            await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
+            await callback.message.edit_text(
+                _panel_detail_text(p), reply_markup=build_panel_detail_menu(p)
+            )
 
     await callback.answer()
 
@@ -482,7 +611,14 @@ async def on_toggle(callback: CallbackQuery, callback_data: PanelCB, db: aiosqli
 
 
 @router.callback_query(PanelCB.filter(F.action == "confirm"))
-async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, db: aiosqlite.Connection, panel_manager: PanelManager, settings) -> None:
+async def on_confirm(
+    callback: CallbackQuery,
+    callback_data: PanelCB,
+    bot: Bot,
+    db: aiosqlite.Connection,
+    panel_manager: PanelManager,
+    settings,
+) -> None:
     target, tid, extra = callback_data.target, callback_data.tid, callback_data.extra
 
     if target == "promonow":
@@ -490,7 +626,15 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
         if ch:
             try:
                 from ..promo import publish_promo
-                await publish_promo(bot, db, channel_id=ch.tg_channel_id, pin=ch.promo_pin, silent=ch.promo_silent, channel_db_id=ch.id)
+
+                await publish_promo(
+                    bot,
+                    db,
+                    channel_id=ch.tg_channel_id,
+                    pin=ch.promo_pin,
+                    silent=ch.promo_silent,
+                    channel_db_id=ch.id,
+                )
                 await callback.answer("✅ پست ارسال شد.", show_alert=True)
             except Exception as exc:
                 logger.exception("Panel promonow failed")
@@ -500,12 +644,24 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
         ch = await store.get_channel(db, tid)
         if ch and extra:
             parts = extra.split("_")
-            if len(parts) == 2:
-                pid, gid = int(parts[0]), int(parts[1])
-                await store.delete_channel_offer_group(db, channel_id=ch.id, panel_id=pid, group_id=gid)
+            pid_gid: tuple[int, int] | None = None
+            try:
+                if len(parts) == 2:
+                    pid_gid = (int(parts[0]), int(parts[1]))
+            except ValueError:
+                pid_gid = None  # malformed payload — treat as a no-op
+            if pid_gid is not None:
+                pid, gid = pid_gid
+                await store.delete_channel_offer_group(
+                    db, channel_id=ch.id, panel_id=pid, group_id=gid
+                )
                 offers = await store.list_channel_offer_groups(db, ch.id)
-                lines = [f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)]
-                text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + ("\n".join(lines) if lines else "خالی")
+                lines = [
+                    f"{i}. {o.label} (p{o.panel_id}:g{o.group_id})" for i, o in enumerate(offers, 1)
+                ]
+                text = f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\n" + (
+                    "\n".join(lines) if lines else "خالی"
+                )
                 await callback.message.edit_text(text, reply_markup=build_offer_menu(ch, offers))
                 await callback.answer("✅ حذف شد.")
                 return
@@ -515,7 +671,9 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
         ch = await store.get_channel(db, tid)
         if ch:
             await store.clear_channel_offer_groups(db, ch.id)
-            await callback.message.edit_text(f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\nخالی", reply_markup=build_offer_menu(ch, []))
+            await callback.message.edit_text(
+                f"🌐 <b>گروه‌ها — {_ch_label(ch)}:</b>\nخالی", reply_markup=build_offer_menu(ch, [])
+            )
             await callback.answer("✅ همه حذف شدند.")
 
     elif target == "pnl_remove":
@@ -523,21 +681,27 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
         if p:
             await store.soft_delete_panel(db, p.id)
             p = await store.get_panel(db, p.id)
-            await callback.message.edit_text(_panel_detail_text(p), reply_markup=build_panel_detail_menu(p))
+            await callback.message.edit_text(
+                _panel_detail_text(p), reply_markup=build_panel_detail_menu(p)
+            )
             await callback.answer("✅ غیرفعال شد.")
             return
 
     elif target == "backup_db":
         try:
             from pathlib import Path
+
             from aiogram.types import BufferedInputFile
+
             db_path = Path(settings.db_path)
             if db_path.exists():
                 await db.commit()
                 file_bytes = db_path.read_bytes()
                 ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
                 doc = BufferedInputFile(file_bytes, filename=f"pasarguard_backup_{ts}.db")
-                await callback.message.answer_document(document=doc, caption=f"💾 بکاپ دیتابیس — {ts}")
+                await callback.message.answer_document(
+                    document=doc, caption=f"💾 بکاپ دیتابیس — {ts}"
+                )
                 await callback.answer("✅ بکاپ ارسال شد.", show_alert=True)
             else:
                 await callback.answer("❌ فایل دیتابیس یافت نشد.", show_alert=True)
@@ -547,9 +711,12 @@ async def on_confirm(callback: CallbackQuery, callback_data: PanelCB, bot: Bot, 
 
     elif target == "backup_export":
         try:
-            from .backup import _build_export
             import json as _json
+
             from aiogram.types import BufferedInputFile
+
+            from .backup import _build_export
+
             data = await _build_export(db)
             json_bytes = _json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
             ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -600,7 +767,9 @@ async def on_edit(callback: CallbackQuery, callback_data: PanelCB, state: FSMCon
             await state.update_data(panel_id=tid, target=target)
         else:
             await state.update_data(channel_id=tid, target=target)
-        await callback.message.edit_text(prompt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_cancel_btn()]]))
+        await callback.message.edit_text(
+            prompt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_cancel_btn()]])
+        )
     await callback.answer()
 
 
@@ -611,7 +780,8 @@ async def on_edit(callback: CallbackQuery, callback_data: PanelCB, state: FSMCon
 
 @router.message(PanelInput.waiting_promo_text)
 async def input_promo_text(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     await store.set_setting(db, f"channel:{ch_id}:promo_text", message.text or "")
     await state.clear()
     await message.answer("✅ متن پرومو ذخیره شد.", reply_markup=_back_to_ch_kb(ch_id))
@@ -619,10 +789,12 @@ async def input_promo_text(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_promo_int)
 async def input_promo_int(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         hours = float(message.text)
-        if hours <= 0: raise ValueError
+        if hours <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد مثبت وارد کنید.")
         return
@@ -633,10 +805,12 @@ async def input_promo_int(message: Message, state: FSMContext, db: aiosqlite.Con
 
 @router.message(PanelInput.waiting_data_limit)
 async def input_data_limit(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         gb = float(message.text)
-        if gb <= 0: raise ValueError
+        if gb <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد مثبت وارد کنید.")
         return
@@ -647,10 +821,12 @@ async def input_data_limit(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_trial_days)
 async def input_trial_days(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         days = int(message.text)
-        if days <= 0: raise ValueError
+        if days <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد صحیح مثبت وارد کنید.")
         return
@@ -661,10 +837,12 @@ async def input_trial_days(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_grace_days)
 async def input_grace_days(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         days = int(message.text)
-        if days <= 0: raise ValueError
+        if days <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد صحیح مثبت وارد کنید.")
         return
@@ -675,10 +853,12 @@ async def input_grace_days(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_regrant_days)
 async def input_regrant_days(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         days = int(message.text)
-        if days <= 0: raise ValueError
+        if days <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد صحیح مثبت وارد کنید.")
         return
@@ -689,10 +869,12 @@ async def input_regrant_days(message: Message, state: FSMContext, db: aiosqlite.
 
 @router.message(PanelInput.waiting_max_age)
 async def input_max_age(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         days = float(message.text)
-        if days < 0: raise ValueError
+        if days < 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد معتبر وارد کنید (۰ = غیرفعال).")
         return
@@ -704,10 +886,12 @@ async def input_max_age(message: Message, state: FSMContext, db: aiosqlite.Conne
 
 @router.message(PanelInput.waiting_join_delay)
 async def input_join_delay(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         seconds = int(message.text)
-        if seconds < 0: raise ValueError
+        if seconds < 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد صحیح معتبر وارد کنید.")
         return
@@ -718,7 +902,8 @@ async def input_join_delay(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_reset_user)
 async def input_reset_user(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); ch_id = data.get("channel_id")
+    data = await state.get_data()
+    ch_id = data.get("channel_id")
     try:
         uid = int((message.text or "").strip().lstrip("@"))
     except (ValueError, TypeError):
@@ -732,7 +917,9 @@ async def input_reset_user(message: Message, state: FSMContext, db: aiosqlite.Co
 
 
 @router.message(PanelInput.waiting_offer_panel_id)
-async def input_offer_panel_id(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
+async def input_offer_panel_id(
+    message: Message, state: FSMContext, db: aiosqlite.Connection
+) -> None:
     try:
         pid = int((message.text or "").strip())
     except (ValueError, TypeError):
@@ -747,7 +934,9 @@ async def input_offer_panel_id(message: Message, state: FSMContext, db: aiosqlit
 
 
 @router.message(PanelInput.waiting_offer_group_id)
-async def input_offer_group_id(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
+async def input_offer_group_id(
+    message: Message, state: FSMContext, db: aiosqlite.Connection
+) -> None:
     try:
         gid = int((message.text or "").strip())
     except (ValueError, TypeError):
@@ -766,7 +955,9 @@ async def input_offer_label(message: Message, state: FSMContext, db: aiosqlite.C
     if not label:
         await message.answer("❌ برچسب نمی‌تواند خالی باشد.")
         return
-    await store.upsert_channel_offer_group(db, channel_id=ch_id, panel_id=pid, group_id=gid, label=label)
+    await store.upsert_channel_offer_group(
+        db, channel_id=ch_id, panel_id=pid, group_id=gid, label=label
+    )
     await state.clear()
     await message.answer(f"✅ «{label}» اضافه شد.", reply_markup=_back_to_ch_kb(ch_id))
 
@@ -778,7 +969,8 @@ async def input_offer_label(message: Message, state: FSMContext, db: aiosqlite.C
 
 @router.message(PanelInput.waiting_panel_name)
 async def input_panel_name(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+    data = await state.get_data()
+    pid = data.get("panel_id")
     name = (message.text or "").strip()
     if not name:
         await message.answer("❌ نام نمی‌تواند خالی باشد.")
@@ -790,7 +982,8 @@ async def input_panel_name(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_panel_url)
 async def input_panel_url(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+    data = await state.get_data()
+    pid = data.get("panel_id")
     url = (message.text or "").strip()
     if not url:
         await message.answer("❌ آدرس نمی‌تواند خالی باشد.")
@@ -802,7 +995,8 @@ async def input_panel_url(message: Message, state: FSMContext, db: aiosqlite.Con
 
 @router.message(PanelInput.waiting_panel_user)
 async def input_panel_user(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+    data = await state.get_data()
+    pid = data.get("panel_id")
     username = (message.text or "").strip()
     if not username:
         await message.answer("❌ نام کاربری نمی‌تواند خالی باشد.")
@@ -814,7 +1008,8 @@ async def input_panel_user(message: Message, state: FSMContext, db: aiosqlite.Co
 
 @router.message(PanelInput.waiting_panel_pass)
 async def input_panel_pass(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+    data = await state.get_data()
+    pid = data.get("panel_id")
     password = (message.text or "").strip()
     if not password:
         await message.answer("❌ رمز نمی‌تواند خالی باشد.")
@@ -825,11 +1020,15 @@ async def input_panel_pass(message: Message, state: FSMContext, db: aiosqlite.Co
 
 
 @router.message(PanelInput.waiting_panel_timeout)
-async def input_panel_timeout(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+async def input_panel_timeout(
+    message: Message, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    pid = data.get("panel_id")
     try:
         timeout = float(message.text)
-        if timeout <= 0: raise ValueError
+        if timeout <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد مثبت وارد کنید.")
         return
@@ -839,8 +1038,11 @@ async def input_panel_timeout(message: Message, state: FSMContext, db: aiosqlite
 
 
 @router.message(PanelInput.waiting_panel_protocols)
-async def input_panel_protocols(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+async def input_panel_protocols(
+    message: Message, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    pid = data.get("panel_id")
     protocols = (message.text or "").strip()
     if not protocols:
         await message.answer("❌ پروتکل‌ها نمی‌تواند خالی باشد.")
@@ -851,11 +1053,15 @@ async def input_panel_protocols(message: Message, state: FSMContext, db: aiosqli
 
 
 @router.message(PanelInput.waiting_panel_autodel)
-async def input_panel_autodel(message: Message, state: FSMContext, db: aiosqlite.Connection) -> None:
-    data = await state.get_data(); pid = data.get("panel_id")
+async def input_panel_autodel(
+    message: Message, state: FSMContext, db: aiosqlite.Connection
+) -> None:
+    data = await state.get_data()
+    pid = data.get("panel_id")
     try:
         days = int(message.text)
-        if days <= 0: raise ValueError
+        if days <= 0:
+            raise ValueError
     except (ValueError, TypeError):
         await message.answer("❌ لطفاً یک عدد صحیح مثبت وارد کنید.")
         return

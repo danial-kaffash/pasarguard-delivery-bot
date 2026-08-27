@@ -9,10 +9,22 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from bot.handlers import join_request as jr
-from bot.handlers.admin import cmd_pausejoins, cmd_resumejoins, cmd_setjoindelay, cmd_joinstats
-from bot.pause import is_joins_paused, is_channel_joins_paused, set_joins_paused, set_channel_joins_paused
+from bot.handlers.admin import cmd_joinstats, cmd_pausejoins, cmd_resumejoins, cmd_setjoindelay
+from bot.pause import (
+    is_channel_joins_paused,
+    is_joins_paused,
+    set_channel_joins_paused,
+    set_joins_paused,
+)
 from storage import db as store
-from tests.helpers import FakeBotWithDM, FakeChatJoinRequest, FakeMessage, FakePanel, FakePanelManager, make_settings
+from tests.helpers import (
+    FakeBotWithDM,
+    FakeChatJoinRequest,
+    FakeMessage,
+    FakePanel,
+    FakePanelManager,
+    make_settings,
+)
 
 CHANNEL_TG_ID = -1001234567890
 SETTINGS = make_settings()
@@ -30,16 +42,25 @@ async def db(tmp_path):
 async def _setup_channel(db, *, tg_id=CHANNEL_TG_ID, delay=10, panel_groups=(2,)):
     """Create a panel, channel, and offer groups for testing."""
     panel = await store.create_panel(
-        db, name="TestPanel", base_url="https://panel.test",
-        admin_username="admin", admin_password="pw",
+        db,
+        name="TestPanel",
+        base_url="https://panel.test",
+        admin_username="admin",
+        admin_password="pw",
     )
     ch = await store.create_channel(
-        db, tg_channel_id=tg_id, title="Test",
+        db,
+        tg_channel_id=tg_id,
+        title="Test",
         join_approval_delay_seconds=delay,
     )
     for gid in panel_groups:
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=gid, label=f"group-{gid}",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=gid,
+            label=f"group-{gid}",
         )
     return panel, ch
 
@@ -175,7 +196,11 @@ async def test_join_request_active_grant_approves_and_resends_sub(db):
     panel_row, ch = await _setup_channel(db)
     # Record a grant on this channel's panel.
     await store.record_grant(
-        db, tg_user_id=42, panel_username="t42_abc", source="start", channel_id=ch.id,
+        db,
+        tg_user_id=42,
+        panel_username="t42_abc",
+        source="start",
+        channel_id=ch.id,
     )
     fake_panel = FakePanel(groups=[(2, "NL")])
     pm = _make_panel_manager(panel_row, fake_panel)
@@ -195,7 +220,11 @@ async def test_join_request_active_grant_approves_and_resends_sub(db):
 async def test_join_request_cooldown_approves_and_mentions_cooldown(db):
     panel_row, ch = await _setup_channel(db)
     await store.record_grant(
-        db, tg_user_id=42, panel_username="t42_abc", source="start", channel_id=ch.id,
+        db,
+        tg_user_id=42,
+        panel_username="t42_abc",
+        source="start",
+        channel_id=ch.id,
     )
     # Age the grant past its lifetime but within cooldown.
     old = (datetime.now(UTC) - timedelta(days=15)).isoformat()
@@ -220,7 +249,11 @@ async def test_join_request_cooldown_approves_and_mentions_cooldown(db):
 async def test_join_request_no_offers_approves_without_trial(db):
     # Create channel without offer groups.
     panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
     )
     await store.create_channel(db, tg_channel_id=CHANNEL_TG_ID, title="Empty")
 

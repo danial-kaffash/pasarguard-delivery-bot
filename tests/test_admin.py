@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.handlers import admin
-from bot.pause import is_channel_joins_paused, is_channel_paused, set_channel_paused
+from bot.pause import is_channel_joins_paused, is_channel_paused
 from storage import db as store
 from tests.helpers import FakeBot, FakeMessage, FakePanel, FakePanelManager, make_settings
 
@@ -38,16 +38,25 @@ async def _setup_superadmin(db):
 async def _setup_channel(db, *, panel_groups=None):
     """Create a panel, channel, and optionally offer groups. Returns (panel, channel)."""
     panel = await store.create_panel(
-        db, name="TestPanel", base_url="https://panel.test",
-        admin_username="admin", admin_password="pw",
+        db,
+        name="TestPanel",
+        base_url="https://panel.test",
+        admin_username="admin",
+        admin_password="pw",
     )
     ch = await store.create_channel(
-        db, tg_channel_id=-1001234567890, title="Test",
+        db,
+        tg_channel_id=-1001234567890,
+        title="Test",
     )
     if panel_groups:
         for gid in panel_groups:
             await store.upsert_channel_offer_group(
-                db, channel_id=ch.id, panel_id=panel.id, group_id=gid, label=f"group-{gid}",
+                db,
+                channel_id=ch.id,
+                panel_id=panel.id,
+                group_id=gid,
+                label=f"group-{gid}",
             )
     return panel, ch
 
@@ -111,8 +120,12 @@ async def test_addpanel_bad_args(db):
 
 async def test_panels_list(db):
     await _setup_superadmin(db)
-    await store.create_panel(db, name="A", base_url="https://a", admin_username="a", admin_password="a")
-    await store.create_panel(db, name="B", base_url="https://b", admin_username="b", admin_password="b")
+    await store.create_panel(
+        db, name="A", base_url="https://a", admin_username="a", admin_password="a"
+    )
+    await store.create_panel(
+        db, name="B", base_url="https://b", admin_username="b", admin_password="b"
+    )
     msg = FakeMessage(user_id=1)
     await admin.cmd_panels(msg, db=db)
     assert "A" in msg.texts[0] and "B" in msg.texts[0]
@@ -121,7 +134,11 @@ async def test_panels_list(db):
 async def test_editpanel(db):
     await _setup_superadmin(db)
     panel = await store.create_panel(
-        db, name="Old", base_url="https://old", admin_username="a", admin_password="b",
+        db,
+        name="Old",
+        base_url="https://old",
+        admin_username="a",
+        admin_password="b",
     )
     msg = FakeMessage(user_id=1)
     await admin.cmd_editpanel(msg, cmd(f"{panel.id} name NewName"), db=db)
@@ -295,7 +312,9 @@ async def test_settrial(db):
     await _setup_superadmin(db)
     panel, ch = await _setup_channel(db)
     msg = FakeMessage(user_id=1)
-    await admin.cmd_settrial(msg, cmd(f"{ch.tg_channel_id} data_limit_gb 10"), db=db, settings=SETTINGS)
+    await admin.cmd_settrial(
+        msg, cmd(f"{ch.tg_channel_id} data_limit_gb 10"), db=db, settings=SETTINGS
+    )
     updated = await store.get_channel(db, ch.id)
     assert updated.trial_data_limit_gb == 10.0
 
@@ -316,7 +335,9 @@ async def test_setoffer_and_deloffer(db):
     await _setup_superadmin(db)
     panel, ch = await _setup_channel(db)
     msg = FakeMessage(user_id=1)
-    await admin.cmd_setoffer(msg, cmd(f"{ch.tg_channel_id} {panel.id} 5 🇳🇱 هلند"), db=db, settings=SETTINGS)
+    await admin.cmd_setoffer(
+        msg, cmd(f"{ch.tg_channel_id} {panel.id} 5 🇳🇱 هلند"), db=db, settings=SETTINGS
+    )
     offers = await store.list_channel_offer_groups(db, ch.id)
     assert len(offers) == 1
     assert offers[0].label == "🇳🇱 هلند"
@@ -339,7 +360,9 @@ async def test_offergroups_shows_list(db):
     panel, ch = await _setup_channel(db, panel_groups=[2, 5])
     pm = _pm(panel, FakePanel(groups=[(2, "NL"), (5, "TR")]))
     msg = FakeMessage(user_id=1)
-    await admin.cmd_offergroups(msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm)
+    await admin.cmd_offergroups(
+        msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm
+    )
     assert "🇳🇱" in msg.texts[0] or "group-2" in msg.texts[0]
 
 

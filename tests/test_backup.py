@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-from io import BytesIO
-from types import SimpleNamespace
 
 import pytest
 
-from bot.handlers.backup import _apply_import, _build_export, cmd_export
+from bot.handlers.backup import _apply_import, _build_export
 from storage import db as store
-from tests.helpers import FakeMessage, make_settings
+from tests.helpers import make_settings
 
 SETTINGS = make_settings()
 
@@ -27,19 +25,30 @@ async def db(tmp_path):
 async def _seed_data(db):
     """Seed some data for export/import tests."""
     panel = await store.create_panel(
-        db, name="NL Panel", base_url="https://nl.test",
-        admin_username="admin", admin_password="secret",
-        protocols="vless,trojan", auto_delete_days=14,
+        db,
+        name="NL Panel",
+        base_url="https://nl.test",
+        admin_username="admin",
+        admin_password="secret",
+        protocols="vless,trojan",
+        auto_delete_days=14,
     )
     ch = await store.create_channel(
-        db, tg_channel_id=-100123, title="My Channel",
-        trial_data_limit_gb=10.0, trial_days=7,
+        db,
+        tg_channel_id=-100123,
+        title="My Channel",
+        trial_data_limit_gb=10.0,
+        trial_days=7,
     )
     await store.upsert_user(db, tg_user_id=1, role="superadmin")
     await store.upsert_user(db, tg_user_id=42, role="admin")
     await store.assign_channel_admin(db, 42, ch.id)
     await store.upsert_channel_offer_group(
-        db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="🇳🇱 هلند",
+        db,
+        channel_id=ch.id,
+        panel_id=panel.id,
+        group_id=2,
+        label="🇳🇱 هلند",
     )
     await store.set_setting(db, "promo_text", "متن تست")
     return panel, ch
@@ -100,10 +109,6 @@ async def test_export_preserves_settings(db):
 
 async def test_cmd_export_sends_document(db):
     await _seed_data(db)
-    msg = FakeMessage(user_id=1)
-    bot = SimpleNamespace(
-        send_document=None,
-    )
     # cmd_export uses message.answer_document which FakeMessage doesn't support.
     # Test the underlying function instead.
     data = await _build_export(db)
@@ -151,7 +156,11 @@ async def test_import_creates_channels(db):
 async def test_import_updates_existing(db):
     """Importing with existing panel/channel updates them."""
     await store.create_panel(
-        db, name="NL", base_url="https://old", admin_username="a", admin_password="b",
+        db,
+        name="NL",
+        base_url="https://old",
+        admin_username="a",
+        admin_password="b",
     )
     await store.create_channel(db, tg_channel_id=-100123, title="Old")
 
@@ -164,7 +173,7 @@ async def test_import_updates_existing(db):
         "channel_offer_groups": [],
         "settings": {},
     }
-    result = await _apply_import(db, bot=None, data=data)
+    await _apply_import(db, bot=None, data=data)
 
     panels = await store.list_panels(db, active_only=False)
     assert panels[0].base_url == "https://new"
@@ -204,8 +213,20 @@ async def test_import_offer_groups(db):
         "users": [],
         "channel_admins": [],
         "channel_offer_groups": [
-            {"channel_tg_id": -100123, "panel_index": 0, "group_id": 2, "label": "🇳🇱 هلند", "sort_order": 0},
-            {"channel_tg_id": -100123, "panel_index": 0, "group_id": 5, "label": "🇹🇷 ترکیه", "sort_order": 1},
+            {
+                "channel_tg_id": -100123,
+                "panel_index": 0,
+                "group_id": 2,
+                "label": "🇳🇱 هلند",
+                "sort_order": 0,
+            },
+            {
+                "channel_tg_id": -100123,
+                "panel_index": 0,
+                "group_id": 5,
+                "label": "🇹🇷 ترکیه",
+                "sort_order": 1,
+            },
         ],
         "settings": {},
     }

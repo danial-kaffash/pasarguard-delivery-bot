@@ -130,7 +130,9 @@ class FakeMessage:
 class FakeChatJoinRequest:
     """Minimal stand-in for an aiogram ChatJoinRequest; records approve/decline calls."""
 
-    def __init__(self, chat_id: int, user_id: int, username: str = "testuser", first_name: str = "Test"):
+    def __init__(
+        self, chat_id: int, user_id: int, username: str = "testuser", first_name: str = "Test"
+    ):
         self.chat = SimpleNamespace(id=chat_id)
         self.from_user = SimpleNamespace(id=user_id, username=username, first_name=first_name)
         self.date = None
@@ -161,6 +163,81 @@ class FakeBotWithDM(FakeBot):
         # Also store in sent for compatibility
         self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
         return SimpleNamespace(message_id=self._next_id)
+
+
+class FakeEditableMessage:
+    """Message stand-in for callback flows: records edits and sends."""
+
+    def __init__(self):
+        self.edits: list[tuple[str, dict]] = []
+        self.markup_edits: list[dict] = []
+        self.answers: list[tuple[str, dict]] = []
+        self.documents: list[dict] = []
+
+    async def edit_text(self, text: str, **kwargs):
+        self.edits.append((text, kwargs))
+        return SimpleNamespace(message_id=1)
+
+    async def edit_reply_markup(self, **kwargs):
+        self.markup_edits.append(kwargs)
+        return True
+
+    async def answer(self, text: str, **kwargs):
+        self.answers.append((text, kwargs))
+        return SimpleNamespace(message_id=len(self.answers))
+
+    async def answer_document(self, document=None, caption: str | None = None, **kwargs):
+        self.documents.append({"document": document, "caption": caption, **kwargs})
+        return SimpleNamespace(message_id=1)
+
+    @property
+    def texts(self) -> list[str]:
+        return [t for t, _ in self.answers]
+
+
+class FakeCallback:
+    """Minimal stand-in for an aiogram CallbackQuery (message already sent)."""
+
+    def __init__(self, user_id: int = 1, message: FakeEditableMessage | None = None):
+        self.from_user = SimpleNamespace(id=user_id, first_name="Owner", username="owner")
+        self.message = message if message is not None else FakeEditableMessage()
+        self.answers: list[tuple[str | None, dict]] = []
+
+    async def answer(self, text: str | None = None, **kwargs):
+        self.answers.append((text, kwargs))
+        return True
+
+
+class FakeFileBot:
+    """Bot stand-in that can "download" Telegram files by id."""
+
+    def __init__(
+        self, files: dict[str, bytes] | None = None, chat_titles: dict[int, str] | None = None
+    ):
+        self.files = files or {}
+        self.chat_titles = chat_titles or {}
+        self.sent: list[dict] = []
+        self.got_chats: list[int] = []
+
+    async def get_file(self, file_id: str):
+        if file_id not in self.files:
+            raise RuntimeError(f"file not found: {file_id}")
+        return SimpleNamespace(file_path=file_id)
+
+    async def download_file(self, file_path: str):
+        import io
+
+        return io.BytesIO(self.files[file_path])
+
+    async def get_chat(self, chat_id: int):
+        self.got_chats.append(chat_id)
+        if chat_id not in self.chat_titles:
+            raise RuntimeError("chat not found")
+        return SimpleNamespace(title=self.chat_titles[chat_id])
+
+    async def send_message(self, chat_id: int, text: str, **kwargs):
+        self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
+        return SimpleNamespace(message_id=len(self.sent))
 
 
 class FakePanelManager:

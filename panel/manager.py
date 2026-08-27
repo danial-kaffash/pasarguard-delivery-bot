@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from storage.db import Panel
 
@@ -73,9 +72,7 @@ class PanelManager:
 
     # ── groups cache (per-panel) ───────────────────────────────────────────
 
-    async def list_groups(
-        self, panel: Panel, *, force: bool = False
-    ) -> dict[int, str]:
+    async def list_groups(self, panel: Panel, *, force: bool = False) -> dict[int, str]:
         """GET /api/groups/simple with a per-panel 5-minute cache.
 
         Returns ``{group_id: group_name}``.

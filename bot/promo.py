@@ -23,7 +23,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from storage import db as store
 
-from .pause import is_channel_paused, is_paused
+from .pause import is_channel_paused
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,9 @@ async def get_interval_hours(db: aiosqlite.Connection, default: float) -> float:
     return value if value > 0 else default
 
 
-async def get_channel_interval(db: aiosqlite.Connection, channel_db_id: int, default: float) -> float:
+async def get_channel_interval(
+    db: aiosqlite.Connection, channel_db_id: int, default: float
+) -> float:
     """Channel-scoped interval, falling back to global."""
     key = _CH_PROMO_INTERVAL.format(cid=channel_db_id)
     raw = await store.get_setting(db, key)
@@ -238,7 +240,11 @@ async def run_scheduler(bot: Bot, db: aiosqlite.Connection, settings) -> None:
                             schedule[ch.id] = state.next_run_at
                         else:
                             schedule[ch.id] = now + STARTUP_GRACE_SECONDS
-                            logger.info("Channel #%s new — first promo in %.0fs", ch.id, STARTUP_GRACE_SECONDS)
+                            logger.info(
+                                "Channel #%s new — first promo in %.0fs",
+                                ch.id,
+                                STARTUP_GRACE_SECONDS,
+                            )
                 # Remove inactive channels.
                 active_ids = {ch.id for ch in channels}
                 for cid in list(schedule.keys()):
@@ -263,7 +269,11 @@ async def run_scheduler(bot: Bot, db: aiosqlite.Connection, settings) -> None:
 
         # Check if the channel is paused.
         if await is_channel_paused(db, soonest_id):
-            logger.info("Channel #%s paused — skipping; re-checking in %.0fs.", soonest_id, PAUSE_POLL_SECONDS)
+            logger.info(
+                "Channel #%s paused — skipping; re-checking in %.0fs.",
+                soonest_id,
+                PAUSE_POLL_SECONDS,
+            )
             schedule[soonest_id] = time.time() + PAUSE_POLL_SECONDS
             continue
 
@@ -276,7 +286,8 @@ async def run_scheduler(bot: Bot, db: aiosqlite.Connection, settings) -> None:
         try:
             text = await get_channel_promo_text(db, ch.id)
             message_id = await publish_promo(
-                bot, db,
+                bot,
+                db,
                 channel_id=ch.tg_channel_id,
                 pin=ch.promo_pin,
                 silent=ch.promo_silent,
@@ -289,11 +300,17 @@ async def run_scheduler(bot: Bot, db: aiosqlite.Connection, settings) -> None:
             schedule[ch.id] = next_run_at
             logger.info(
                 "Promo published for channel #%s (msg_id=%s); next in %.1fh",
-                ch.id, message_id, interval_h,
+                ch.id,
+                message_id,
+                interval_h,
             )
         except asyncio.CancelledError:
             logger.info("Promo scheduler cancelled.")
             raise
         except Exception:
-            logger.exception("Promo publish failed for channel #%s; retrying in %.0fs", ch.id, RETRY_BACKOFF_SECONDS)
+            logger.exception(
+                "Promo publish failed for channel #%s; retrying in %.0fs",
+                ch.id,
+                RETRY_BACKOFF_SECONDS,
+            )
             schedule[ch.id] = time.time() + RETRY_BACKOFF_SECONDS

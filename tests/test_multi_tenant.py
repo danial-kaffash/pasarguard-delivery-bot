@@ -14,11 +14,12 @@ Covers:
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
+import sqlite3
 
 import pytest
 
-from storage import crypto, db as store
+from storage import crypto
+from storage import db as store
 
 
 @pytest.fixture
@@ -58,6 +59,7 @@ class TestCrypto:
     def test_with_key_roundtrip(self):
         """With a valid Fernet key, encrypt → decrypt returns the original."""
         from cryptography.fernet import Fernet
+
         key = Fernet.generate_key().decode()
         os.environ["DB_ENCRYPTION_KEY"] = key
         crypto._fernet = None
@@ -74,6 +76,7 @@ class TestCrypto:
     def test_with_key_ciphertext_differs_each_time(self):
         """Fernet uses a random IV, so same plaintext produces different ciphertext."""
         from cryptography.fernet import Fernet
+
         key = Fernet.generate_key().decode()
         os.environ["DB_ENCRYPTION_KEY"] = key
         crypto._fernet = None
@@ -105,8 +108,11 @@ class TestCrypto:
 class TestPanels:
     async def test_create_and_get(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl.test",
-            admin_username="admin", admin_password="secret123",
+            db,
+            name="NL",
+            base_url="https://nl.test",
+            admin_username="admin",
+            admin_password="secret123",
         )
         assert panel.id > 0
         assert panel.name == "NL"
@@ -120,10 +126,15 @@ class TestPanels:
 
     async def test_create_with_custom_settings(self, db):
         panel = await store.create_panel(
-            db, name="TR", base_url="https://tr.test",
-            admin_username="admin", admin_password="pw",
-            verify_ssl=False, timeout_seconds=30.0,
-            protocols="vless,trojan", auto_delete_days=14,
+            db,
+            name="TR",
+            base_url="https://tr.test",
+            admin_username="admin",
+            admin_password="pw",
+            verify_ssl=False,
+            timeout_seconds=30.0,
+            protocols="vless,trojan",
+            auto_delete_days=14,
         )
         assert panel.verify_ssl is False
         assert panel.timeout_seconds == 30.0
@@ -131,26 +142,41 @@ class TestPanels:
         assert panel.auto_delete_days == 14
 
     async def test_list_panels(self, db):
-        await store.create_panel(db, name="A", base_url="https://a", admin_username="a", admin_password="a")
-        await store.create_panel(db, name="B", base_url="https://b", admin_username="b", admin_password="b")
+        await store.create_panel(
+            db, name="A", base_url="https://a", admin_username="a", admin_password="a"
+        )
+        await store.create_panel(
+            db, name="B", base_url="https://b", admin_username="b", admin_password="b"
+        )
         panels = await store.list_panels(db)
         assert len(panels) == 2
         assert [p.name for p in panels] == ["A", "B"]
 
     async def test_list_panels_excludes_inactive(self, db):
-        p1 = await store.create_panel(db, name="A", base_url="https://a", admin_username="a", admin_password="a")
-        await store.create_panel(db, name="B", base_url="https://b", admin_username="b", admin_password="b")
+        p1 = await store.create_panel(
+            db, name="A", base_url="https://a", admin_username="a", admin_password="a"
+        )
+        await store.create_panel(
+            db, name="B", base_url="https://b", admin_username="b", admin_password="b"
+        )
         await store.soft_delete_panel(db, p1.id)
         assert len(await store.list_panels(db)) == 1
         assert len(await store.list_panels(db, active_only=False)) == 2
 
     async def test_update_panel(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://old",
-            admin_username="admin", admin_password="old_pw",
+            db,
+            name="NL",
+            base_url="https://old",
+            admin_username="admin",
+            admin_password="old_pw",
         )
         changed = await store.update_panel(
-            db, panel.id, name="NL-v2", base_url="https://new", admin_password="new_pw",
+            db,
+            panel.id,
+            name="NL-v2",
+            base_url="https://new",
+            admin_password="new_pw",
         )
         assert changed is True
         fetched = await store.get_panel(db, panel.id)
@@ -163,7 +189,11 @@ class TestPanels:
 
     async def test_soft_delete_panel(self, db):
         panel = await store.create_panel(
-            db, name="X", base_url="https://x", admin_username="x", admin_password="x",
+            db,
+            name="X",
+            base_url="https://x",
+            admin_username="x",
+            admin_password="x",
         )
         assert await store.soft_delete_panel(db, panel.id) is True
         fetched = await store.get_panel(db, panel.id)
@@ -202,12 +232,18 @@ class TestChannels:
 
     async def test_create_with_custom_settings(self, db):
         ch = await store.create_channel(
-            db, tg_channel_id=-1001, title="Test",
-            trial_data_limit_gb=10.0, trial_days=7,
-            on_hold_grace_days=14, allow_regrant_after_days=60,
+            db,
+            tg_channel_id=-1001,
+            title="Test",
+            trial_data_limit_gb=10.0,
+            trial_days=7,
+            on_hold_grace_days=14,
+            allow_regrant_after_days=60,
             trial_max_member_age_days=3.0,
             join_approval_delay_seconds=30,
-            promo_interval_hours=12.0, promo_pin=False, promo_silent=False,
+            promo_interval_hours=12.0,
+            promo_pin=False,
+            promo_silent=False,
         )
         assert ch.trial_data_limit_gb == 10.0
         assert ch.trial_days == 7
@@ -228,7 +264,11 @@ class TestChannels:
     async def test_update_channel(self, db):
         ch = await store.create_channel(db, tg_channel_id=-1, title="Old")
         changed = await store.update_channel(
-            db, ch.id, title="New", trial_data_limit_gb=20.0, promo_pin=False,
+            db,
+            ch.id,
+            title="New",
+            trial_data_limit_gb=20.0,
+            promo_pin=False,
         )
         assert changed is True
         fetched = await store.get_channel(db, ch.id)
@@ -247,7 +287,7 @@ class TestChannels:
 
     async def test_tg_channel_id_unique(self, db):
         await store.create_channel(db, tg_channel_id=-1)
-        with pytest.raises(Exception):  # sqlite IntegrityError
+        with pytest.raises(sqlite3.IntegrityError):
             await store.create_channel(db, tg_channel_id=-1)
 
 
@@ -368,14 +408,26 @@ class TestChannelAdmins:
 class TestChannelOfferGroups:
     async def test_upsert_and_list(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="🇳🇱 هلند",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="🇳🇱 هلند",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=5, label="🇹🇷 ترکیه",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=5,
+            label="🇹🇷 ترکیه",
         )
         groups = await store.list_channel_offer_groups(db, ch.id)
         assert len(groups) == 2
@@ -385,14 +437,26 @@ class TestChannelOfferGroups:
 
     async def test_upsert_updates_label(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="Old",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="Old",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="New",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="New",
         )
         groups = await store.list_channel_offer_groups(db, ch.id)
         assert len(groups) == 1
@@ -401,17 +465,33 @@ class TestChannelOfferGroups:
     async def test_multi_panel_groups(self, db):
         """A channel can have groups from multiple panels."""
         p1 = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         p2 = await store.create_panel(
-            db, name="TR", base_url="https://tr", admin_username="a", admin_password="b",
+            db,
+            name="TR",
+            base_url="https://tr",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=p1.id, group_id=2, label="🇳🇱 هلند",
+            db,
+            channel_id=ch.id,
+            panel_id=p1.id,
+            group_id=2,
+            label="🇳🇱 هلند",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=p2.id, group_id=5, label="🇹🇷 ترکیه",
+            db,
+            channel_id=ch.id,
+            panel_id=p2.id,
+            group_id=5,
+            label="🇹🇷 ترکیه",
         )
         groups = await store.list_channel_offer_groups(db, ch.id)
         assert len(groups) == 2
@@ -420,27 +500,53 @@ class TestChannelOfferGroups:
 
     async def test_delete_offer_group(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="NL",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="NL",
         )
-        assert await store.delete_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2,
-        ) is True
+        assert (
+            await store.delete_channel_offer_group(
+                db,
+                channel_id=ch.id,
+                panel_id=panel.id,
+                group_id=2,
+            )
+            is True
+        )
         assert len(await store.list_channel_offer_groups(db, ch.id)) == 0
 
     async def test_clear_offer_groups(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="A",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="A",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=5, label="B",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=5,
+            label="B",
         )
         count = await store.clear_channel_offer_groups(db, ch.id)
         assert count == 2
@@ -448,15 +554,27 @@ class TestChannelOfferGroups:
 
     async def test_clear_only_affects_one_channel(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch1 = await store.create_channel(db, tg_channel_id=-1)
         ch2 = await store.create_channel(db, tg_channel_id=-2)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch1.id, panel_id=panel.id, group_id=2, label="A",
+            db,
+            channel_id=ch1.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="A",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch2.id, panel_id=panel.id, group_id=2, label="B",
+            db,
+            channel_id=ch2.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="B",
         )
         await store.clear_channel_offer_groups(db, ch1.id)
         assert len(await store.list_channel_offer_groups(db, ch1.id)) == 0
@@ -464,21 +582,39 @@ class TestChannelOfferGroups:
 
     async def test_reorder(self, db):
         panel = await store.create_panel(
-            db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+            db,
+            name="NL",
+            base_url="https://nl",
+            admin_username="a",
+            admin_password="b",
         )
         ch = await store.create_channel(db, tg_channel_id=-1)
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=2, label="A",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=2,
+            label="A",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=5, label="B",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=5,
+            label="B",
         )
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=9, label="C",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=9,
+            label="C",
         )
         # Reorder: C, A, B
         await store.reorder_channel_offer_groups(
-            db, ch.id, [(panel.id, 9), (panel.id, 2), (panel.id, 5)],
+            db,
+            ch.id,
+            [(panel.id, 9), (panel.id, 2), (panel.id, 5)],
         )
         groups = await store.list_channel_offer_groups(db, ch.id)
         assert [g.group_id for g in groups] == [9, 2, 5]
@@ -493,7 +629,11 @@ class TestMigration:
     async def test_channel_id_on_trial_grants(self, db):
         """New grant with channel_id set."""
         await store.record_grant(
-            db, tg_user_id=1, panel_username="t1_x", source="join_request", channel_id=5,
+            db,
+            tg_user_id=1,
+            panel_username="t1_x",
+            source="join_request",
+            channel_id=5,
         )
         grant = await store.get_latest_grant(db, 1)
         assert grant is not None
@@ -509,6 +649,7 @@ class TestMigration:
     async def test_old_db_gets_new_tables(self, tmp_path):
         """An old DB (without multi-tenant tables) gets them via CREATE IF NOT EXISTS."""
         import aiosqlite
+
         db_path = tmp_path / "old.db"
         db = await aiosqlite.connect(db_path)
         db.row_factory = aiosqlite.Row
@@ -528,8 +669,11 @@ class TestMigration:
         try:
             # Should be able to create a panel.
             panel = await store.create_panel(
-                db, name="Test", base_url="https://t",
-                admin_username="a", admin_password="b",
+                db,
+                name="Test",
+                base_url="https://t",
+                admin_username="a",
+                admin_password="b",
             )
             assert panel.id > 0
 
@@ -538,8 +682,8 @@ class TestMigration:
             assert ch.id > 0
 
             # Old grants should have channel_id = None.
-            grant = await store.get_latest_grant(db, 0)
-            # (no old grants in this test, but the column exists)
+            # (no old grants in this test, but the lookup must not blow up)
+            await store.get_latest_grant(db, 0)
         finally:
             await db.close()
 

@@ -5,15 +5,14 @@ Covers get_channel_offered_groups and integration with ChannelSettings.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
-from panel.exceptions import PanelConflictError
 from services import trial as trial_service
 from services.channel_settings import ChannelSettings
 from storage import db as store
-from tests.helpers import FakePanel, FakePanelManager, make_panel_user
+from tests.helpers import FakePanel, FakePanelManager
 
 
 @pytest.fixture
@@ -27,13 +26,20 @@ async def db(tmp_path):
 
 async def _setup(db, *, panel_groups=(2, 5)):
     panel = await store.create_panel(
-        db, name="NL", base_url="https://nl.test",
-        admin_username="admin", admin_password="pw",
+        db,
+        name="NL",
+        base_url="https://nl.test",
+        admin_username="admin",
+        admin_password="pw",
     )
     ch = await store.create_channel(db, tg_channel_id=-100123, title="Test")
     for gid in panel_groups:
         await store.upsert_channel_offer_group(
-            db, channel_id=ch.id, panel_id=panel.id, group_id=gid, label=f"Group {gid}",
+            db,
+            channel_id=ch.id,
+            panel_id=panel.id,
+            group_id=gid,
+            label=f"Group {gid}",
         )
     return panel, ch
 
@@ -75,8 +81,12 @@ async def test_get_channel_offered_groups_inactive_panel(db):
 
 
 async def test_get_channel_offered_groups_empty(db):
-    panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
+    await store.create_panel(
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
     )
     ch = await store.create_channel(db, tg_channel_id=-1, title="Empty")
     pm = FakePanelManager()
@@ -89,14 +99,26 @@ async def test_get_channel_offered_groups_empty(db):
 async def test_get_channel_offered_groups_multi_panel(db):
     """Groups from multiple panels — each validated against its own panel."""
     p1 = await store.create_panel(
-        db, name="NL", base_url="https://nl", admin_username="a", admin_password="b",
+        db,
+        name="NL",
+        base_url="https://nl",
+        admin_username="a",
+        admin_password="b",
     )
     p2 = await store.create_panel(
-        db, name="TR", base_url="https://tr", admin_username="a", admin_password="b",
+        db,
+        name="TR",
+        base_url="https://tr",
+        admin_username="a",
+        admin_password="b",
     )
     ch = await store.create_channel(db, tg_channel_id=-1, title="Multi")
-    await store.upsert_channel_offer_group(db, channel_id=ch.id, panel_id=p1.id, group_id=2, label="NL")
-    await store.upsert_channel_offer_group(db, channel_id=ch.id, panel_id=p2.id, group_id=5, label="TR")
+    await store.upsert_channel_offer_group(
+        db, channel_id=ch.id, panel_id=p1.id, group_id=2, label="NL"
+    )
+    await store.upsert_channel_offer_group(
+        db, channel_id=ch.id, panel_id=p2.id, group_id=5, label="TR"
+    )
 
     pm = FakePanelManager()
     pm.register(p1.id, FakePanel(groups=[(2, "NL")]))
@@ -115,12 +137,20 @@ async def test_get_channel_offered_groups_multi_panel(db):
 async def test_eligibility_with_channel_settings(db):
     """check_eligibility works with ChannelSettings."""
     panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
         auto_delete_days=11,
     )
     ch = await store.create_channel(
-        db, tg_channel_id=-1, title="T",
-        on_hold_grace_days=7, trial_days=3, allow_regrant_after_days=30,
+        db,
+        tg_channel_id=-1,
+        title="T",
+        on_hold_grace_days=7,
+        trial_days=3,
+        allow_regrant_after_days=30,
     )
     cs = ChannelSettings(ch, panel_row)
 
@@ -129,7 +159,9 @@ async def test_eligibility_with_channel_settings(db):
 
     # Active grant → not eligible.
     grant = store.TrialGrant(
-        tg_user_id=1, panel_username="t1", created_at=datetime.now(UTC),
+        tg_user_id=1,
+        panel_username="t1",
+        created_at=datetime.now(UTC),
     )
     result = trial_service.check_eligibility(grant, cs)
     assert result.eligible is False
@@ -139,17 +171,29 @@ async def test_eligibility_with_channel_settings(db):
 async def test_build_trial_user_with_channel_settings(db):
     """build_trial_user works with ChannelSettings."""
     panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
-        protocols="vless,trojan", auto_delete_days=14,
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
+        protocols="vless,trojan",
+        auto_delete_days=14,
     )
     ch = await store.create_channel(
-        db, tg_channel_id=-1, title="T",
-        trial_data_limit_gb=10.0, trial_days=7, on_hold_grace_days=14,
+        db,
+        tg_channel_id=-1,
+        title="T",
+        trial_data_limit_gb=10.0,
+        trial_days=7,
+        on_hold_grace_days=14,
     )
     cs = ChannelSettings(ch, panel_row)
 
     user = trial_service.build_trial_user(
-        settings=cs, username="t1_abc", tg_user_id=1, group_ids=[2, 5],
+        settings=cs,
+        username="t1_abc",
+        tg_user_id=1,
+        group_ids=[2, 5],
     )
     assert user.data_limit == 10 * 1024**3
     assert user.on_hold_expire_duration == 7 * 86400
@@ -163,18 +207,30 @@ async def test_create_trial_with_channel_settings(db):
     from tests.helpers import FakePanel as FakePanelClient
 
     panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
-        protocols="vless", auto_delete_days=11,
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
+        protocols="vless",
+        auto_delete_days=11,
     )
     ch = await store.create_channel(
-        db, tg_channel_id=-1, title="T",
-        trial_data_limit_gb=5.0, trial_days=3, on_hold_grace_days=7,
+        db,
+        tg_channel_id=-1,
+        title="T",
+        trial_data_limit_gb=5.0,
+        trial_days=3,
+        on_hold_grace_days=7,
     )
     cs = ChannelSettings(ch, panel_row)
     fake_panel = FakePanelClient(groups=[(2, "NL")])
 
     panel_user, username = await trial_service.create_trial(
-        fake_panel, settings=cs, tg_user_id=42, group_ids=[2],
+        fake_panel,
+        settings=cs,
+        tg_user_id=42,
+        group_ids=[2],
     )
     assert username.startswith("t42_")
     assert panel_user.subscription_url

@@ -15,7 +15,6 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
-from panel.client import PasarGuardApiClient
 from panel.manager import PanelManager
 from storage import db as store
 
@@ -63,6 +62,7 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
 
         # First-run migration: seed multi-tenant tables from .env.
         from .migration import migrate_from_env
+
         migrated = await migrate_from_env(db, settings)
         if migrated:
             logger.info("First-run migration from .env completed.")
@@ -81,7 +81,6 @@ def build_dispatcher(settings) -> tuple[Bot, Dispatcher]:
         elif settings.panel_base_url:
             # Fallback: create a panel from .env if migration didn't run.
             logger.info("No panels in DB — creating from .env.")
-            from storage import crypto  # noqa: F811
             panel_row = await store.create_panel(
                 db,
                 name="Default",

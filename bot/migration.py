@@ -34,7 +34,10 @@ async def migrate_from_env(db: aiosqlite.Connection, settings) -> bool:
         return False  # already have panels — no migration needed
 
     if not settings.panel_base_url or not settings.channel_id:
-        logger.info("No panels/channels in DB and PANEL_BASE_URL or CHANNEL_ID not set — skipping migration.")
+        logger.info(
+            "No panels/channels in DB and PANEL_BASE_URL or CHANNEL_ID not set "
+            "— skipping migration."
+        )
         return False
 
     logger.info("First run detected — migrating from .env to DB...")
@@ -75,8 +78,11 @@ async def migrate_from_env(db: aiosqlite.Connection, settings) -> bool:
     legacy_offers = await store.list_offer_groups(db)
     for og in legacy_offers:
         await store.upsert_channel_offer_group(
-            db, channel_id=channel.id, panel_id=panel.id,
-            group_id=og.id, label=og.label,
+            db,
+            channel_id=channel.id,
+            panel_id=panel.id,
+            group_id=og.id,
+            label=og.label,
         )
     if legacy_offers:
         _migrated_items.append(f"{len(legacy_offers)} offer group(s)")
@@ -85,8 +91,12 @@ async def migrate_from_env(db: aiosqlite.Connection, settings) -> bool:
     legacy_state = await store.get_promo_state(db)
     if legacy_state:
         from bot.promo import set_channel_promo_state
+
         await set_channel_promo_state(
-            db, channel.id, legacy_state.message_id, legacy_state.next_run_at,
+            db,
+            channel.id,
+            legacy_state.message_id,
+            legacy_state.next_run_at,
         )
         _migrated_items.append("promo state")
 
