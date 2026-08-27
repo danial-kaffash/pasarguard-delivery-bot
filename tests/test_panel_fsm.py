@@ -8,10 +8,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bot.handlers.panel import (
-    PanelCB, PanelInput,
-    input_promo_text, input_promo_int, input_data_limit,
-    input_trial_days, input_grace_days, input_regrant_days,
-    input_max_age, input_join_delay, input_reset_user,
+    PanelCB,
+    PanelInput,
+    input_data_limit,
+    input_grace_days,
+    input_join_delay,
+    input_max_age,
+    input_promo_int,
+    input_promo_text,
+    input_regrant_days,
+    input_reset_user,
+    input_trial_days,
     on_edit,
 )
 from storage import db as store
@@ -31,7 +38,11 @@ async def db(tmp_path):
 
 async def _setup(db):
     panel = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
     )
     ch = await store.create_channel(db, tg_channel_id=-100123, title="Test")
     await store.upsert_user(db, tg_user_id=1, role="superadmin")

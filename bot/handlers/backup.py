@@ -19,7 +19,7 @@ from pathlib import Path
 
 import aiosqlite
 from aiogram import Bot, Router
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Document, Message
 
 from storage import db as store
@@ -206,13 +206,17 @@ async def _build_export(db: aiosqlite.Connection) -> dict:
     channel_offer_groups = []
     for ch in channels:
         for o in await store.list_channel_offer_groups(db, ch.id):
-            channel_offer_groups.append({
-                "channel_tg_id": ch.tg_channel_id,
-                "panel_index": next((i for i, p in enumerate(panels) if p.id == o.panel_id), -1),
-                "group_id": o.group_id,
-                "label": o.label,
-                "sort_order": o.sort_order,
-            })
+            channel_offer_groups.append(
+                {
+                    "channel_tg_id": ch.tg_channel_id,
+                    "panel_index": next(
+                        (i for i, p in enumerate(panels) if p.id == o.panel_id), -1
+                    ),
+                    "group_id": o.group_id,
+                    "label": o.label,
+                    "sort_order": o.sort_order,
+                }
+            )
 
     settings_rows = await db.execute_fetchall("SELECT key, value FROM settings ORDER BY key")
 
@@ -221,22 +225,31 @@ async def _build_export(db: aiosqlite.Connection) -> dict:
         "exported_at": datetime.now(UTC).isoformat(),
         "panels": [
             {
-                "name": p.name, "base_url": p.base_url, "admin_username": p.admin_username,
-                "verify_ssl": p.verify_ssl, "timeout_seconds": p.timeout_seconds,
-                "protocols": p.protocols, "auto_delete_days": p.auto_delete_days, "active": p.active,
+                "name": p.name,
+                "base_url": p.base_url,
+                "admin_username": p.admin_username,
+                "verify_ssl": p.verify_ssl,
+                "timeout_seconds": p.timeout_seconds,
+                "protocols": p.protocols,
+                "auto_delete_days": p.auto_delete_days,
+                "active": p.active,
             }
             for p in panels
         ],
         "channels": [
             {
-                "tg_channel_id": ch.tg_channel_id, "title": ch.title,
-                "trial_data_limit_gb": ch.trial_data_limit_gb, "trial_days": ch.trial_days,
+                "tg_channel_id": ch.tg_channel_id,
+                "title": ch.title,
+                "trial_data_limit_gb": ch.trial_data_limit_gb,
+                "trial_days": ch.trial_days,
                 "on_hold_grace_days": ch.on_hold_grace_days,
                 "allow_regrant_after_days": ch.allow_regrant_after_days,
                 "trial_max_member_age_days": ch.trial_max_member_age_days,
                 "join_approval_delay_seconds": ch.join_approval_delay_seconds,
                 "promo_interval_hours": ch.promo_interval_hours,
-                "promo_pin": ch.promo_pin, "promo_silent": ch.promo_silent, "active": ch.active,
+                "promo_pin": ch.promo_pin,
+                "promo_silent": ch.promo_silent,
+                "active": ch.active,
             }
             for ch in channels
         ],
@@ -299,7 +312,14 @@ async def cmd_import(message: Message, bot: Bot, db: aiosqlite.Connection) -> No
 
 
 async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
-    counts = {"panels": 0, "channels": 0, "users": 0, "assignments": 0, "offer_groups": 0, "settings": 0}
+    counts = {
+        "panels": 0,
+        "channels": 0,
+        "users": 0,
+        "assignments": 0,
+        "offer_groups": 0,
+        "settings": 0,
+    }
     panel_id_map: dict[int, int] = {}
     channel_id_map: dict[int, int] = {}
 
@@ -307,7 +327,9 @@ async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
         existing = await _find_panel_by_name(db, p_data["name"])
         if existing:
             await store.update_panel(
-                db, existing.id, base_url=p_data["base_url"],
+                db,
+                existing.id,
+                base_url=p_data["base_url"],
                 admin_username=p_data["admin_username"],
                 verify_ssl=p_data.get("verify_ssl", True),
                 timeout_seconds=p_data.get("timeout_seconds", 15.0),
@@ -318,8 +340,11 @@ async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
             panel_id_map[i] = existing.id
         else:
             panel = await store.create_panel(
-                db, name=p_data["name"], base_url=p_data["base_url"],
-                admin_username=p_data["admin_username"], admin_password="",
+                db,
+                name=p_data["name"],
+                base_url=p_data["base_url"],
+                admin_username=p_data["admin_username"],
+                admin_password="",
                 verify_ssl=p_data.get("verify_ssl", True),
                 timeout_seconds=p_data.get("timeout_seconds", 15.0),
                 protocols=p_data.get("protocols", "vless"),
@@ -331,11 +356,23 @@ async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
     for ch_data in data.get("channels", []):
         tg_id = ch_data["tg_channel_id"]
         existing = await store.get_channel_by_tg_id(db, tg_id)
-        fields = {k: ch_data[k] for k in [
-            "title", "trial_data_limit_gb", "trial_days", "on_hold_grace_days",
-            "allow_regrant_after_days", "trial_max_member_age_days",
-            "join_approval_delay_seconds", "promo_interval_hours", "promo_pin", "promo_silent", "active",
-        ] if k in ch_data}
+        fields = {
+            k: ch_data[k]
+            for k in [
+                "title",
+                "trial_data_limit_gb",
+                "trial_days",
+                "on_hold_grace_days",
+                "allow_regrant_after_days",
+                "trial_max_member_age_days",
+                "join_approval_delay_seconds",
+                "promo_interval_hours",
+                "promo_pin",
+                "promo_silent",
+                "active",
+            ]
+            if k in ch_data
+        }
         if existing:
             await store.update_channel(db, existing.id, **fields)
             channel_id_map[tg_id] = existing.id
@@ -348,7 +385,9 @@ async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
         counts["channels"] += 1
 
     for u_data in data.get("users", []):
-        await store.upsert_user(db, tg_user_id=u_data["tg_user_id"], role=u_data.get("role", "user"))
+        await store.upsert_user(
+            db, tg_user_id=u_data["tg_user_id"], role=u_data.get("role", "user")
+        )
         counts["users"] += 1
 
     for ca_data in data.get("channel_admins", []):
@@ -362,8 +401,11 @@ async def _apply_import(db: aiosqlite.Connection, bot: Bot, data: dict) -> dict:
         panel_db_id = panel_id_map.get(og_data.get("panel_index", -1))
         if ch_db_id and panel_db_id:
             await store.upsert_channel_offer_group(
-                db, channel_id=ch_db_id, panel_id=panel_db_id,
-                group_id=og_data["group_id"], label=og_data["label"],
+                db,
+                channel_id=ch_db_id,
+                panel_id=panel_db_id,
+                group_id=og_data["group_id"],
+                label=og_data["label"],
             )
             counts["offer_groups"] += 1
 

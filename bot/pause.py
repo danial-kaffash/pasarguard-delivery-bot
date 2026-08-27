@@ -80,6 +80,8 @@ async def is_channel_joins_paused(db: aiosqlite.Connection, channel_db_id: int) 
     return _is_true(await store.get_setting(db, key))
 
 
-async def set_channel_joins_paused(db: aiosqlite.Connection, channel_db_id: int, value: bool) -> None:
+async def set_channel_joins_paused(
+    db: aiosqlite.Connection, channel_db_id: int, value: bool
+) -> None:
     key = _CHANNEL_JOINS_PAUSED_FMT.format(channel_id=channel_db_id)
     await store.set_setting(db, key, "true" if value else "false")

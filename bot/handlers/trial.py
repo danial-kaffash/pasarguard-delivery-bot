@@ -46,15 +46,12 @@ def _display_name(message_or_user) -> str:
 
 
 def _labels_for(ids: list[int], offers: list[ChannelOfferGroup]) -> str:
-    labels = {(o.panel_id, o.group_id): o.label for o in offers}
     # Legacy: ids is a flat list of group_ids.  Match on group_id alone.
     label_map = {o.group_id: o.label for o in offers}
     return "، ".join(label_map.get(i, f"#{i}") for i in ids)
 
 
-async def _resolve_channel_from_start(
-    message: Message, db: aiosqlite.Connection
-) -> Channel | None:
+async def _resolve_channel_from_start(message: Message, db: aiosqlite.Connection) -> Channel | None:
     """Resolve the target channel from the /start deep-link payload.
 
     Payload format: ``join`` or ``join_<tg_channel_id>``.
@@ -83,7 +80,9 @@ async def _resolve_channel_from_start(
 
 
 async def _resolve_channel_and_settings(
-    message: Message, db: aiosqlite.Connection, panel_manager: PanelManager,
+    message: Message,
+    db: aiosqlite.Connection,
+    panel_manager: PanelManager,
 ) -> tuple[Channel, ChannelSettings] | None:
     """Resolve channel + settings from /start.  Returns None if unresolved."""
     channel = await _resolve_channel_from_start(message, db)
@@ -144,9 +143,7 @@ async def on_start(
     channel, settings = resolved
 
     # "New members only" gate.
-    max_age = await trial_service.get_max_member_age_days(
-        db, settings.trial_max_member_age_days
-    )
+    max_age = await trial_service.get_max_member_age_days(db, settings.trial_max_member_age_days)
     if max_age > 0:
         join_at = await store.get_first_join_at(db, channel.tg_channel_id, user.id)
         if not trial_service.is_membership_recent_enough(join_at, max_age):
@@ -166,7 +163,9 @@ async def on_start(
                 panel_user = await panel.get_user(grant.panel_username)
                 sub_url = panel_user.subscription_url or None
             except PanelError as exc:
-                logger.warning("Could not re-fetch existing trial %s: %s", grant.panel_username, exc)
+                logger.warning(
+                    "Could not re-fetch existing trial %s: %s", grant.panel_username, exc
+                )
         if sub_url:
             await message.answer(texts.ALREADY_GRANTED.format(name=name, sub_url=sub_url))
         else:
@@ -181,7 +180,9 @@ async def on_start(
 
     # Get channel offer groups validated against the panels.
     offers, _stale = await trial_service.get_channel_offered_groups(
-        panel_manager, db, channel.id,
+        panel_manager,
+        db,
+        channel.id,
     )
     if not offers:
         await message.answer(texts.NO_GROUPS_AVAILABLE)
@@ -214,7 +215,9 @@ async def toggle_group(
     channel_id = data.get("channel_id")
     if channel_id:
         offers, _stale = await trial_service.get_channel_offered_groups(
-            panel_manager, db, channel_id,
+            panel_manager,
+            db,
+            channel_id,
         )
     else:
         offers = []
@@ -264,9 +267,7 @@ async def confirm_selection(
 
     # Find the panel for the selected group.
     channel_offers = await store.list_channel_offer_groups(db, channel.id)
-    selected_offer = next(
-        (o for o in channel_offers if o.group_id in selected), None
-    )
+    selected_offer = next((o for o in channel_offers if o.group_id in selected), None)
     if selected_offer is None:
         await state.clear()
         await callback.message.edit_text(texts.ERROR_TRY_AGAIN)
@@ -325,7 +326,9 @@ async def confirm_selection(
     await state.clear()
 
     offers, _stale = await trial_service.get_channel_offered_groups(
-        panel_manager, db, channel.id,
+        panel_manager,
+        db,
+        channel.id,
     )
     if panel_user.subscription_url:
         await callback.message.answer(
@@ -340,5 +343,10 @@ async def confirm_selection(
     else:
         logger.warning("Panel returned no subscription_url for %s", username)
         await callback.message.answer(texts.DELIVERY_NO_SUB_URL.format(username=username))
-    logger.info("Granted trial %s to tg_id=%s (groups=%s, channel=%s)",
-                username, user.id, selected, channel.tg_channel_id)
+    logger.info(
+        "Granted trial %s to tg_id=%s (groups=%s, channel=%s)",
+        username,
+        user.id,
+        selected,
+        channel.tg_channel_id,
+    )

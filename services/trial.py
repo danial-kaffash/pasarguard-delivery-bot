@@ -181,7 +181,9 @@ async def get_channel_offered_groups(
         if panel is None or not panel.active:
             for o in panel_offers:
                 stale.append((o.panel_id, o.group_id))
-            logger.warning("Panel id=%s missing/inactive — skipping %d offer(s).", panel_id, len(panel_offers))
+            logger.warning(
+                "Panel id=%s missing/inactive — skipping %d offer(s).", panel_id, len(panel_offers)
+            )
             continue
 
         try:
@@ -199,7 +201,8 @@ async def get_channel_offered_groups(
                 stale.append((o.panel_id, o.group_id))
                 logger.warning(
                     "Offer group %s (panel=%s) missing from panel — skipped.",
-                    o.group_id, panel_id,
+                    o.group_id,
+                    panel_id,
                 )
 
     return valid, stale

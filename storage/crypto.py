@@ -30,15 +30,20 @@ def _load_fernet():
     if not key:
         logger.warning(
             "DB_ENCRYPTION_KEY is not set — panel passwords will be stored in PLAINTEXT. "
-            "Generate a key: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            "Generate a key: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
         )
         return
     try:
         from cryptography.fernet import Fernet
+
         _fernet = Fernet(key.encode() if isinstance(key, str) else key)
         logger.info("DB_ENCRYPTION_KEY loaded — panel passwords will be encrypted.")
     except Exception:
-        logger.exception("DB_ENCRYPTION_KEY is invalid — panel passwords will be stored in PLAINTEXT.")
+        logger.exception(
+            "DB_ENCRYPTION_KEY is invalid — panel passwords will be stored in PLAINTEXT."
+        )
 
 
 def encrypt(plaintext: str) -> str:

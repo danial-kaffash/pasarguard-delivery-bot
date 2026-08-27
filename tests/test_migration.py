@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.migration import migrate_from_env
-from bot.promo import get_channel_promo_state, set_channel_promo_state
+from bot.promo import get_channel_promo_state
 from storage import db as store
 
 
@@ -65,8 +65,11 @@ async def test_migrate_creates_panel_and_channel(db):
 
 async def test_migrate_skips_if_panels_exist(db):
     await store.create_panel(
-        db, name="Existing", base_url="https://x",
-        admin_username="x", admin_password="x",
+        db,
+        name="Existing",
+        base_url="https://x",
+        admin_username="x",
+        admin_password="x",
     )
     settings = _settings()
     result = await migrate_from_env(db, settings)

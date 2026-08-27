@@ -41,7 +41,9 @@ JOIN_DELAY_KEY_SUFFIX = "join_approval_delay_seconds"
 JOIN_DELAY_KEY = JOIN_DELAY_KEY_SUFFIX
 
 
-async def get_join_delay(db: aiosqlite.Connection, default: int, channel_db_id: int | None = None) -> int:
+async def get_join_delay(
+    db: aiosqlite.Connection, default: int, channel_db_id: int | None = None
+) -> int:
     """Runtime override (via /setjoindelay) beats the channel default.
 
     When channel_db_id is given, checks the channel-scoped key first
@@ -97,8 +99,12 @@ async def on_join_request(
 
     # Record the join-request event for stats.
     await store.record_member_event(db, event.chat.id, user_id, "join_request")
-    logger.info("Join request from tg_id=%s (%s) on channel %s",
-                user_id, user.username or "no_username", event.chat.id)
+    logger.info(
+        "Join request from tg_id=%s (%s) on channel %s",
+        user_id,
+        user.username or "no_username",
+        event.chat.id,
+    )
 
     # ── If joins are paused → approve immediately, no trial. ────────────────
     if await is_joins_paused(db):
@@ -146,11 +152,14 @@ async def on_join_request(
                 panel_user = await panel.get_user(grant.panel_username)
                 sub_url = panel_user.subscription_url or None
             except PanelError as exc:
-                logger.warning("Could not re-fetch existing trial %s: %s", grant.panel_username, exc)
+                logger.warning(
+                    "Could not re-fetch existing trial %s: %s", grant.panel_username, exc
+                )
 
         if sub_url:
             await _safe_dm(
-                bot, user_id,
+                bot,
+                user_id,
                 texts.JOIN_REQUEST_ALREADY_GRANTED.format(name=name, sub_url=sub_url),
             )
         try:
@@ -163,10 +172,9 @@ async def on_join_request(
     # User is in cooldown — approve immediately, mention cooldown.
     if not eligibility.eligible and eligibility.reason == "cooldown":
         await _safe_dm(
-            bot, user_id,
-            texts.JOIN_REQUEST_COOLDOWN.format(
-                name=name, days=eligibility.retry_after_days or 0
-            ),
+            bot,
+            user_id,
+            texts.JOIN_REQUEST_COOLDOWN.format(name=name, days=eligibility.retry_after_days or 0),
         )
         try:
             await event.approve()
@@ -177,7 +185,9 @@ async def on_join_request(
 
     # ── User is eligible — create trial ─────────────────────────────────────
     offers, _stale = await trial_service.get_channel_offered_groups(
-        panel_manager, db, channel.id,
+        panel_manager,
+        db,
+        channel.id,
     )
     if not offers:
         await _safe_dm(bot, user_id, texts.NO_GROUPS_AVAILABLE)
@@ -215,7 +225,9 @@ async def on_join_request(
         try:
             await event.approve()
         except Exception:
-            logger.exception("Failed to approve join request for tg_id=%s after panel error", user_id)
+            logger.exception(
+                "Failed to approve join request for tg_id=%s after panel error", user_id
+            )
         return
 
     # Record the grant.
@@ -239,7 +251,8 @@ async def on_join_request(
     # DM the trial config.
     if panel_user.subscription_url:
         await _safe_dm(
-            bot, user_id,
+            bot,
+            user_id,
             texts.JOIN_REQUEST_DELIVERY.format(
                 name=name,
                 gb=offer_settings.trial_data_limit_gb,
@@ -253,12 +266,20 @@ async def on_join_request(
     else:
         logger.warning("Panel returned no subscription_url for %s", username)
         await _safe_dm(
-            bot, user_id,
-            texts.JOIN_REQUEST_DELIVERY_NO_SUB_URL.format(name=name, username=username, delay=delay),
+            bot,
+            user_id,
+            texts.JOIN_REQUEST_DELIVERY_NO_SUB_URL.format(
+                name=name, username=username, delay=delay
+            ),
         )
 
-    logger.info("Granted join-request trial %s to tg_id=%s (groups=%s, channel=%s)",
-                username, user_id, selected_ids, channel.tg_channel_id)
+    logger.info(
+        "Granted join-request trial %s to tg_id=%s (groups=%s, channel=%s)",
+        username,
+        user_id,
+        selected_ids,
+        channel.tg_channel_id,
+    )
 
     # ── Delayed approval ────────────────────────────────────────────────────
     if delay > 0:
@@ -278,4 +299,6 @@ async def _safe_dm(bot: Bot, user_id: int, text: str) -> None:
     try:
         await bot.send_message(user_id, text)
     except Exception:
-        logger.warning("Could not DM tg_id=%s (user may have blocked the bot or DM window expired).", user_id)
+        logger.warning(
+            "Could not DM tg_id=%s (user may have blocked the bot or DM window expired).", user_id
+        )

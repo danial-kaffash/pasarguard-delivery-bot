@@ -1,5 +1,6 @@
 # Development / test dependencies
 pytest>=8.2,<9
 pytest-asyncio>=0.23,<0.24
+pytest-cov>=5,<7
 respx>=0.21,<0.22
 ruff>=0.5

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bot.handlers import panel
-from bot.handlers.panel import PanelCB, PanelInput, cmd_panel, on_view, on_toggle
-from bot.pause import is_channel_joins_paused, is_channel_paused, set_channel_paused
+from bot.handlers.panel import PanelCB, cmd_panel, on_toggle
+from bot.pause import is_channel_joins_paused, is_channel_paused
 from storage import db as store
 from tests.helpers import FakeMessage, make_settings
 
@@ -27,7 +27,11 @@ async def db(tmp_path):
 
 async def _setup(db, *, tg_id=-1001234567890, superadmin=True):
     panel_row = await store.create_panel(
-        db, name="P", base_url="https://p", admin_username="a", admin_password="b",
+        db,
+        name="P",
+        base_url="https://p",
+        admin_username="a",
+        admin_password="b",
     )
     ch = await store.create_channel(db, tg_channel_id=tg_id, title="Test")
     if superadmin:
@@ -68,10 +72,17 @@ def test_build_channel_list_keyboard():
 
 def test_build_channel_menu():
     ch = SimpleNamespace(
-        id=1, tg_channel_id=-1, promo_pin=True, promo_silent=False,
-        title="Test", trial_data_limit_gb=5.0, trial_days=3,
-        on_hold_grace_days=7, allow_regrant_after_days=30,
-        trial_max_member_age_days=0, join_approval_delay_seconds=10,
+        id=1,
+        tg_channel_id=-1,
+        promo_pin=True,
+        promo_silent=False,
+        title="Test",
+        trial_data_limit_gb=5.0,
+        trial_days=3,
+        on_hold_grace_days=7,
+        allow_regrant_after_days=30,
+        trial_max_member_age_days=0,
+        join_approval_delay_seconds=10,
         promo_interval_hours=6.0,
     )
     kb = panel.build_channel_menu(ch, paused=False, joins_paused=False)
@@ -82,18 +93,30 @@ def test_build_channel_menu():
 
 
 def test_build_channel_menu_paused():
-    ch = SimpleNamespace(id=1, tg_channel_id=-1, promo_pin=True, promo_silent=True,
-                         title="", trial_data_limit_gb=5.0, trial_days=3,
-                         on_hold_grace_days=7, allow_regrant_after_days=30,
-                         trial_max_member_age_days=0, join_approval_delay_seconds=10,
-                         promo_interval_hours=6.0)
+    ch = SimpleNamespace(
+        id=1,
+        tg_channel_id=-1,
+        promo_pin=True,
+        promo_silent=True,
+        title="",
+        trial_data_limit_gb=5.0,
+        trial_days=3,
+        on_hold_grace_days=7,
+        allow_regrant_after_days=30,
+        trial_max_member_age_days=0,
+        join_approval_delay_seconds=10,
+        promo_interval_hours=6.0,
+    )
     kb = panel.build_channel_menu(ch, paused=True, joins_paused=True)
     assert "فعال" in kb.inline_keyboard[0][0].text  # "Enable" when paused
 
 
 def test_build_promo_menu():
     ch = SimpleNamespace(
-        id=1, tg_channel_id=-1, promo_pin=True, promo_silent=False,
+        id=1,
+        tg_channel_id=-1,
+        promo_pin=True,
+        promo_silent=False,
         promo_interval_hours=6.0,
     )
     kb = panel.build_promo_menu(ch)
@@ -103,8 +126,11 @@ def test_build_promo_menu():
 
 def test_build_trial_menu():
     ch = SimpleNamespace(
-        id=1, trial_data_limit_gb=5.0, trial_days=3,
-        on_hold_grace_days=7, allow_regrant_after_days=30,
+        id=1,
+        trial_data_limit_gb=5.0,
+        trial_days=3,
+        on_hold_grace_days=7,
+        allow_regrant_after_days=30,
         trial_max_member_age_days=0.0,
     )
     kb = panel.build_trial_menu(ch)

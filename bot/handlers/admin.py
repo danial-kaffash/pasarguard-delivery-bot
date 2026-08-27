@@ -11,6 +11,7 @@ Channel-scoped commands (superadmin or channel admin):
   /settrial  /setjoindelay  /setmaxage
   /groups  /offergroups  /setoffer  /deloffer  /reorder  /clearoffers
   /reset  /stats  /joinstats
+  /newpost  /posts  /checkpremium  (channel-posts feature)
 
 Channel context:
   - In a channel/group chat: inferred from event.chat.id
@@ -29,13 +30,11 @@ from aiogram.filters import BaseFilter, Command
 from aiogram.filters.command import CommandObject
 from aiogram.types import Message
 
-from panel.exceptions import PanelError
 from panel.manager import PanelManager
 from services import trial as trial_service
 from storage import db as store
 from storage.db import Channel
 
-from .. import texts
 from ..handlers.join_request import get_join_delay
 from ..pause import (
     is_channel_joins_paused,
@@ -44,9 +43,8 @@ from ..pause import (
     set_channel_paused,
 )
 from ..promo import (
-    PROMO_TEXT_KEY,
-    get_promo_text,
     get_interval_hours,
+    get_promo_text,
     publish_promo,
 )
 
@@ -130,8 +128,7 @@ async def _resolve_channel(
     raw = (command.args or "").strip().split()[0] if command.args else ""
     if not raw.lstrip("-").isdigit():
         await message.answer(
-            "📝 در پی‌وی باید آیدی کانال رو مشخص کنی.\n"
-            "مثال: <code>/stats -1001234567890</code>"
+            "📝 در پی‌وی باید آیدی کانال رو مشخص کنی.\nمثال: <code>/stats -1001234567890</code>"
         )
         return None
 
@@ -187,8 +184,7 @@ async def _resolve_channel_with_args(
     parts = raw.split(maxsplit=1)
     if not parts or not parts[0].lstrip("-").isdigit():
         await message.answer(
-            "📝 در پی‌وی باید آیدی کانال رو مشخص کنی.\n"
-            "مثال: <code>/stats -1001234567890</code>"
+            "📝 در پی‌وی باید آیدی کانال رو مشخص کنی.\nمثال: <code>/stats -1001234567890</code>"
         )
         return None, []
 
@@ -229,13 +225,17 @@ async def cmd_addpanel(message: Message, command: CommandObject, db: aiosqlite.C
         return
     name, url, username, password = args[0], args[1], args[2], args[3]
     panel = await store.create_panel(
-        db, name=name, base_url=url,
-        admin_username=username, admin_password=password,
+        db,
+        name=name,
+        base_url=url,
+        admin_username=username,
+        admin_password=password,
     )
     await message.answer(
         f"✅ پنل «{name}» اضافه شد (id={panel.id}).\n"
         f"🔗 {url}\n"
-        f"برای تنظیم SSL/timeout/protocols: <code>/editpanel {panel.id} &lt;field&gt; &lt;value&gt;</code>"
+        f"برای تنظیم SSL/timeout/protocols: "
+        f"<code>/editpanel {panel.id} &lt;field&gt; &lt;value&gt;</code>"
     )
 
 
@@ -255,7 +255,9 @@ async def cmd_panels(message: Message, db: aiosqlite.Connection) -> None:
 
 @router.message(IsSuperadmin(), Command("editpanel"))
 async def cmd_editpanel(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Edit a panel field. Usage: /editpanel <id> <field> <value>"""
     args = (command.args or "").strip().split(maxsplit=2)
@@ -282,7 +284,9 @@ async def cmd_editpanel(
 
 @router.message(IsSuperadmin(), Command("removepanel"))
 async def cmd_removepanel(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Soft-delete a panel. Usage: /removepanel <id>"""
     raw = (command.args or "").strip()
@@ -290,8 +294,7 @@ async def cmd_removepanel(
         await message.answer("📝 کاربرد: <code>/removepanel 1</code>")
         return
     panel_id = int(raw)
-    # Check if any active channel references this panel.
-    channel_offers = await store.list_channel_offer_groups(db, 0)  # we need a better check
+    # TODO: check if any active channel references this panel before deleting.
     # For now, just soft-delete.
     if await store.soft_delete_panel(db, panel_id):
         await message.answer(f"✅ پنل #{panel_id} غیرفعال شد.")
@@ -301,7 +304,10 @@ async def cmd_removepanel(
 
 @router.message(IsSuperadmin(), Command("addchannel"))
 async def cmd_addchannel(
-    message: Message, command: CommandObject, bot: Bot, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    bot: Bot,
+    db: aiosqlite.Connection,
 ) -> None:
     """Add a channel. Usage: /addchannel <tg_channel_id>"""
     args = (command.args or "").strip().split()
@@ -340,13 +346,16 @@ async def cmd_addchannel(
     display = f"{title} (<code>{tg_id}</code>)" if title else f"<code>{tg_id}</code>"
     await message.answer(
         f"✅ کانال #{ch.id} ثبت شد: {display}\n"
-        f"برای افزودن گروه: <code>/setoffer {tg_id} &lt;panel_id&gt; &lt;group_id&gt; &lt;label&gt;</code>"
+        f"برای افزودن گروه: <code>/setoffer {tg_id} "
+        f"&lt;panel_id&gt; &lt;group_id&gt; &lt;label&gt;</code>"
     )
 
 
 @router.message(IsSuperadmin(), Command("refreshchannels"))
 async def cmd_refreshchannels(
-    message: Message, bot: Bot, db: aiosqlite.Connection,
+    message: Message,
+    bot: Bot,
+    db: aiosqlite.Connection,
 ) -> None:
     """Re-fetch channel titles from Telegram for all channels with empty titles."""
     channels = await store.list_channels(db, active_only=False)
@@ -384,7 +393,9 @@ async def cmd_channels(message: Message, db: aiosqlite.Connection) -> None:
 
 @router.message(IsSuperadmin(), Command("editchannel"))
 async def cmd_editchannel(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Edit a channel field. Usage: /editchannel <tg_id> <field> <value>"""
     args = (command.args or "").strip().split(maxsplit=2)
@@ -393,7 +404,8 @@ async def cmd_editchannel(
             "📝 کاربرد: <code>/editchannel -100123 title عنوان جدید</code>\n"
             "فیلدها: title, trial_data_limit_gb, trial_days, on_hold_grace_days, "
             "allow_regrant_after_days, trial_max_member_age_days, "
-            "join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent"
+            "join_approval_delay_seconds, promo_interval_hours, promo_pin, promo_silent, "
+            "post_delete_previous"
         )
         return
     tg_id = int(args[0])
@@ -403,9 +415,14 @@ async def cmd_editchannel(
         await message.answer(f"❌ کانال <code>{tg_id}</code> یافت نشد.")
         return
     # Type coercion.
-    if field in ("promo_pin", "promo_silent"):
+    if field in ("promo_pin", "promo_silent", "post_delete_previous"):
         value = value.lower() in ("1", "true", "yes")
-    elif field in ("trial_days", "on_hold_grace_days", "allow_regrant_after_days", "join_approval_delay_seconds"):
+    elif field in (
+        "trial_days",
+        "on_hold_grace_days",
+        "allow_regrant_after_days",
+        "join_approval_delay_seconds",
+    ):
         value = int(value)
     elif field in ("trial_data_limit_gb", "trial_max_member_age_days", "promo_interval_hours"):
         value = float(value)
@@ -417,7 +434,9 @@ async def cmd_editchannel(
 
 @router.message(IsSuperadmin(), Command("removechannel"))
 async def cmd_removechannel(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Soft-delete a channel. Usage: /removechannel <tg_id>"""
     raw = (command.args or "").strip()
@@ -437,7 +456,9 @@ async def cmd_removechannel(
 
 @router.message(IsSuperadmin(), Command("assign"))
 async def cmd_assign(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Assign an admin to a channel. Usage: /assign <user_id> <channel_tg_id>"""
     args = (command.args or "").strip().split()
@@ -457,7 +478,9 @@ async def cmd_assign(
 
 @router.message(IsSuperadmin(), Command("unassign"))
 async def cmd_unassign(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Remove an admin from a channel. Usage: /unassign <user_id> <channel_tg_id>"""
     args = (command.args or "").strip().split()
@@ -477,12 +500,16 @@ async def cmd_unassign(
 
 @router.message(IsSuperadmin(), Command("promote"))
 async def cmd_promote(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Promote a user. Usage: /promote <user_id> <role>"""
     args = (command.args or "").strip().split()
     if len(args) < 2 or not args[0].isdigit():
-        await message.answer("📝 کاربرد: <code>/promote 42 admin</code>\n(نقش‌ها: superadmin, admin)")
+        await message.answer(
+            "📝 کاربرد: <code>/promote 42 admin</code>\n(نقش‌ها: superadmin, admin)"
+        )
         return
     uid, role = int(args[0]), args[1]
     if role not in store.VALID_ROLES or role == "user":
@@ -494,7 +521,9 @@ async def cmd_promote(
 
 @router.message(IsSuperadmin(), Command("demote"))
 async def cmd_demote(
-    message: Message, command: CommandObject, db: aiosqlite.Connection,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
 ) -> None:
     """Demote a user to 'user'. Usage: /demote <user_id>"""
     raw = (command.args or "").strip()
@@ -547,7 +576,10 @@ async def cmd_sysstats(message: Message, db: aiosqlite.Connection) -> None:
 
 @router.message(IsChannelAdmin(), Command("pause"))
 async def cmd_pause(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -560,7 +592,10 @@ async def cmd_pause(
 
 @router.message(IsChannelAdmin(), Command("resume"))
 async def cmd_resume(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -574,7 +609,10 @@ async def cmd_resume(
 
 @router.message(IsChannelAdmin(), Command("pausejoins"))
 async def cmd_pausejoins(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -585,7 +623,10 @@ async def cmd_pausejoins(
 
 @router.message(IsChannelAdmin(), Command("resumejoins"))
 async def cmd_resumejoins(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -599,7 +640,10 @@ async def cmd_resumejoins(
 
 @router.message(IsChannelAdmin(), Command("setpromo"))
 async def cmd_setpromo(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch, args = await _resolve_channel_with_args(message, command, db, settings)
     if not ch:
@@ -617,7 +661,10 @@ async def cmd_setpromo(
 
 @router.message(IsChannelAdmin(), Command("setinterval"))
 async def cmd_setinterval(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch, args = await _resolve_channel_with_args(message, command, db, settings)
     if not ch:
@@ -636,16 +683,22 @@ async def cmd_setinterval(
 
 @router.message(IsChannelAdmin(), Command("promonow"))
 async def cmd_promonow(
-    message: Message, bot: Bot, command: CommandObject,
-    db: aiosqlite.Connection, settings,
+    message: Message,
+    bot: Bot,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
         return
     try:
         msg_id = await publish_promo(
-            bot, db, channel_id=ch.tg_channel_id,
-            pin=ch.promo_pin, silent=ch.promo_silent,
+            bot,
+            db,
+            channel_id=ch.tg_channel_id,
+            pin=ch.promo_pin,
+            silent=ch.promo_silent,
         )
     except Exception as exc:
         logger.exception("Manual promo publish failed for channel %s", ch.id)
@@ -658,7 +711,10 @@ async def cmd_promonow(
 
 @router.message(IsChannelAdmin(), Command("getpromo"))
 async def cmd_getpromo(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -689,7 +745,10 @@ async def cmd_getpromo(
 
 @router.message(IsChannelAdmin(), Command("settrial"))
 async def cmd_settrial(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     """Change trial settings. Usage: /settrial <tg_id> <field> <value>"""
     ch = await _resolve_channel(message, command, db, settings)
@@ -727,7 +786,10 @@ async def cmd_settrial(
 
 @router.message(IsChannelAdmin(), Command("setjoindelay"))
 async def cmd_setjoindelay(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -739,8 +801,7 @@ async def cmd_setjoindelay(
         seconds = -1
     if seconds < 0 or seconds > 3600:
         await message.answer(
-            "📝 کاربرد: <code>/setjoindelay [-100123] 10</code>\n"
-            "(ثانیه، بین ۰ تا ۳۶۰۰)"
+            "📝 کاربرد: <code>/setjoindelay [-100123] 10</code>\n(ثانیه، بین ۰ تا ۳۶۰۰)"
         )
         return
     await store.update_channel(db, ch.id, join_approval_delay_seconds=seconds)
@@ -749,7 +810,10 @@ async def cmd_setjoindelay(
 
 @router.message(IsChannelAdmin(), Command("setmaxage"))
 async def cmd_setmaxage(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -760,10 +824,7 @@ async def cmd_setmaxage(
     except ValueError:
         days = -1
     if days < 0 or days > 3650:
-        await message.answer(
-            "📝 کاربرد: <code>/setmaxage [-100123] 7</code>\n"
-            "(۰ = غیرفعال)"
-        )
+        await message.answer("📝 کاربرد: <code>/setmaxage [-100123] 7</code>\n(۰ = غیرفعال)")
         return
     await store.update_channel(db, ch.id, trial_max_member_age_days=days)
     if days == 0:
@@ -777,16 +838,16 @@ async def cmd_setmaxage(
 
 @router.message(IsChannelAdmin(), Command("groups"))
 async def cmd_groups(
-    message: Message, command: CommandObject,
-    db: aiosqlite.Connection, settings, panel_manager: PanelManager,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
+    panel_manager: PanelManager,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
         return
-    # List groups from all panels that this channel uses.
-    channel_offers = await store.list_channel_offer_groups(db, ch.id)
-    panel_ids = {o.panel_id for o in channel_offers}
-    # Also show groups from all active panels (for adding new offer groups).
+    # Show groups from all active panels (for adding new offer groups).
     all_panels = await store.list_panels(db)
     lines = []
     for p in all_panels:
@@ -797,37 +858,49 @@ async def cmd_groups(
             continue
         if groups:
             group_lines = [f"  {gid} — {name}" for gid, name in sorted(groups.items())]
-            lines.append(f"<b>پنل #{p.id} ({p.name}):</b>\n<code>" + "\n".join(group_lines) + "</code>")
+            lines.append(
+                f"<b>پنل #{p.id} ({p.name}):</b>\n<code>" + "\n".join(group_lines) + "</code>"
+            )
         else:
             lines.append(f"پنل #{p.id} ({p.name}): بدون گروه")
     if not lines:
         await message.answer("هیچ پنل فعالی وجود نداره.")
         return
     await message.answer(
-        "📋 <b>گروه‌های موجود:</b>\n\n" + "\n\n".join(lines) +
-        "\n\nبرای افزودن: <code>/setoffer &lt;tg_id&gt; &lt;panel_id&gt; &lt;group_id&gt; &lt;label&gt;</code>"
+        "📋 <b>گروه‌های موجود:</b>\n\n"
+        + "\n\n".join(lines)
+        + "\n\nبرای افزودن: <code>/setoffer &lt;tg_id&gt; &lt;panel_id&gt; "
+        + "&lt;group_id&gt; &lt;label&gt;</code>"
     )
 
 
 @router.message(IsChannelAdmin(), Command("offergroups"))
 async def cmd_offergroups(
-    message: Message, command: CommandObject,
-    db: aiosqlite.Connection, settings, panel_manager: PanelManager,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
+    panel_manager: PanelManager,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
         return
     offers, stale = await trial_service.get_channel_offered_groups(
-        panel_manager, db, ch.id,
+        panel_manager,
+        db,
+        ch.id,
     )
     if not offers and not stale:
         await message.answer(
             "لیست گروه‌های پیشنهادی خالیه.\n"
-            "افزودن: <code>/setoffer &lt;tg_id&gt; &lt;panel_id&gt; &lt;group_id&gt; &lt;label&gt;</code>"
+            "افزودن: <code>/setoffer &lt;tg_id&gt; &lt;panel_id&gt; "
+            "&lt;group_id&gt; &lt;label&gt;</code>"
         )
         return
-    lines = [f"{i}. {o.label} <i>(panel={o.panel_id}, group={o.group_id})</i>"
-             for i, o in enumerate(offers, 1)]
+    lines = [
+        f"{i}. {o.label} <i>(panel={o.panel_id}, group={o.group_id})</i>"
+        for i, o in enumerate(offers, 1)
+    ]
     text = f"🎯 <b>گروه‌های پیشنهادی کانال #{ch.id}:</b>\n" + "\n".join(lines)
     if stale:
         text += f"\n\n⚠️ گروه‌های حذف‌شده: <code>{stale}</code>"
@@ -836,7 +909,10 @@ async def cmd_offergroups(
 
 @router.message(IsChannelAdmin(), Command("setoffer"))
 async def cmd_setoffer(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     """Add an offer group. Usage: /setoffer <tg_id> <panel_id> <group_id> <label>"""
     ch = await _resolve_channel(message, command, db, settings)
@@ -859,14 +935,21 @@ async def cmd_setoffer(
         await message.answer(f"❌ پنل #{panel_id} یافت نشد.")
         return
     await store.upsert_channel_offer_group(
-        db, channel_id=ch.id, panel_id=panel_id, group_id=group_id, label=label,
+        db,
+        channel_id=ch.id,
+        panel_id=panel_id,
+        group_id=group_id,
+        label=label,
     )
     await message.answer(f"✅ «{label}» (panel={panel_id}, group={group_id}) اضافه شد.")
 
 
 @router.message(IsChannelAdmin(), Command("deloffer"))
 async def cmd_deloffer(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     """Remove an offer group.
     In channel: /deloffer <panel_id> <group_id>
@@ -876,11 +959,16 @@ async def cmd_deloffer(
     if not ch:
         return
     if len(args) < 2 or not all(a.isdigit() for a in args[:2]):
-        await message.answer("📝 کاربرد: <code>/deloffer [tg_id] &lt;panel_id&gt; &lt;group_id&gt;</code>")
+        await message.answer(
+            "📝 کاربرد: <code>/deloffer [tg_id] &lt;panel_id&gt; &lt;group_id&gt;</code>"
+        )
         return
     panel_id, group_id = int(args[0]), int(args[1])
     if await store.delete_channel_offer_group(
-        db, channel_id=ch.id, panel_id=panel_id, group_id=group_id,
+        db,
+        channel_id=ch.id,
+        panel_id=panel_id,
+        group_id=group_id,
     ):
         await message.answer(f"✅ گروه {group_id} از پنل #{panel_id} حذف شد.")
     else:
@@ -889,7 +977,10 @@ async def cmd_deloffer(
 
 @router.message(IsChannelAdmin(), Command("reorder"))
 async def cmd_reorder(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     """Reorder offer groups. Usage: /reorder <tg_id> <panel>:<group>,<panel>:<group>,..."""
     ch = await _resolve_channel(message, command, db, settings)
@@ -903,8 +994,7 @@ async def cmd_reorder(
             ordered.append((int(p), int(g)))
     except (ValueError, AttributeError):
         await message.answer(
-            "📝 کاربرد: <code>/reorder -100123 2:5,2:9,3:1</code>\n"
-            "(panel_id:group_id pairs)"
+            "📝 کاربرد: <code>/reorder -100123 2:5,2:9,3:1</code>\n(panel_id:group_id pairs)"
         )
         return
     await store.reorder_channel_offer_groups(db, ch.id, ordered)
@@ -913,7 +1003,10 @@ async def cmd_reorder(
 
 @router.message(IsChannelAdmin(), Command("clearoffers"))
 async def cmd_clearoffers(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -927,7 +1020,10 @@ async def cmd_clearoffers(
 
 @router.message(IsChannelAdmin(), Command("reset"))
 async def cmd_reset(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -945,7 +1041,10 @@ async def cmd_reset(
 
 @router.message(IsChannelAdmin(), Command("stats"))
 async def cmd_stats(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:
@@ -975,7 +1074,10 @@ async def cmd_stats(
 
 @router.message(IsChannelAdmin(), Command("joinstats"))
 async def cmd_joinstats(
-    message: Message, command: CommandObject, db: aiosqlite.Connection, settings,
+    message: Message,
+    command: CommandObject,
+    db: aiosqlite.Connection,
+    settings,
 ) -> None:
     ch = await _resolve_channel(message, command, db, settings)
     if not ch:

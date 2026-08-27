@@ -73,7 +73,12 @@ async def test_publish_first_time(db):
     ch = await _create_channel(db)
     bot = FakeBot()
     message_id = await promo.publish_promo(
-        bot, db, channel_id=TG_CHANNEL_ID, pin=True, silent=True, channel_db_id=ch.id,
+        bot,
+        db,
+        channel_id=TG_CHANNEL_ID,
+        pin=True,
+        silent=True,
+        channel_db_id=ch.id,
     )
 
     assert bot.deleted == []
@@ -97,7 +102,12 @@ async def test_publish_replaces_previous_post(db):
     bot = FakeBot()
 
     await promo.publish_promo(
-        bot, db, channel_id=TG_CHANNEL_ID, pin=True, silent=True, channel_db_id=ch.id,
+        bot,
+        db,
+        channel_id=TG_CHANNEL_ID,
+        pin=True,
+        silent=True,
+        channel_db_id=ch.id,
     )
 
     assert bot.deleted == [(TG_CHANNEL_ID, 777)]
@@ -111,7 +121,12 @@ async def test_promo_text_channel_override(db):
     bot = FakeBot()
 
     await promo.publish_promo(
-        bot, db, channel_id=TG_CHANNEL_ID, pin=False, silent=True, channel_db_id=ch.id,
+        bot,
+        db,
+        channel_id=TG_CHANNEL_ID,
+        pin=False,
+        silent=True,
+        channel_db_id=ch.id,
     )
     assert bot.sent[0]["text"] == "متن اختصاصی کانال"
     assert bot.pinned == []
@@ -124,7 +139,12 @@ async def test_promo_text_global_fallback(db):
     bot = FakeBot()
 
     await promo.publish_promo(
-        bot, db, channel_id=TG_CHANNEL_ID, pin=False, silent=True, channel_db_id=ch.id,
+        bot,
+        db,
+        channel_id=TG_CHANNEL_ID,
+        pin=False,
+        silent=True,
+        channel_db_id=ch.id,
     )
     assert bot.sent[0]["text"] == "متن سراسری"
 
@@ -217,6 +237,7 @@ async def test_scheduler_skips_paused_channel(db, monkeypatch):
     monkeypatch.setattr(promo, "PAUSE_POLL_SECONDS", 0.1)
     ch = await _create_channel(db)
     from bot.pause import set_channel_paused
+
     await set_channel_paused(db, ch.id, True)
 
     bot = FakeBot()

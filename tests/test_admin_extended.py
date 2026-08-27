@@ -34,14 +34,21 @@ async def db(tmp_path):
 async def _setup(db, *, panel_groups=None):
     await store.upsert_user(db, tg_user_id=1, role="superadmin")
     panel = await store.create_panel(
-        db, name="TestPanel", base_url="https://panel.test",
-        admin_username="admin", admin_password="pw",
+        db,
+        name="TestPanel",
+        base_url="https://panel.test",
+        admin_username="admin",
+        admin_password="pw",
     )
     ch = await store.create_channel(db, tg_channel_id=-1001234567890, title="Test")
     if panel_groups:
         for gid in panel_groups:
             await store.upsert_channel_offer_group(
-                db, channel_id=ch.id, panel_id=panel.id, group_id=gid, label=f"group-{gid}",
+                db,
+                channel_id=ch.id,
+                panel_id=panel.id,
+                group_id=gid,
+                label=f"group-{gid}",
             )
     return panel, ch
 
@@ -88,7 +95,9 @@ async def test_groups_lists_from_all_panels(db):
     pm = FakePanelManager()
     pm.register(panel.id, FakePanel(groups=[(2, "NL"), (5, "TR")]))
     msg = FakeMessage(user_id=1)
-    await admin.cmd_groups(msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm)
+    await admin.cmd_groups(
+        msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm
+    )
     assert "2 —" in msg.texts[0] or "NL" in msg.texts[0]
 
 
@@ -109,7 +118,9 @@ async def test_offergroups_shows_list(db):
     pm = FakePanelManager()
     pm.register(panel.id, FakePanel(groups=[(2, "NL"), (5, "TR")]))
     msg = FakeMessage(user_id=1)
-    await admin.cmd_offergroups(msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm)
+    await admin.cmd_offergroups(
+        msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm
+    )
     assert "group-2" in msg.texts[0] or "NL" in msg.texts[0]
 
 
@@ -118,7 +129,9 @@ async def test_offergroups_empty(db):
     pm = FakePanelManager()
     pm.register(panel.id, FakePanel(groups=[]))
     msg = FakeMessage(user_id=1)
-    await admin.cmd_offergroups(msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm)
+    await admin.cmd_offergroups(
+        msg, cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS, panel_manager=pm
+    )
     assert "خالی" in msg.texts[0]
 
 
@@ -129,8 +142,10 @@ async def test_reorder_works(db):
     panel, ch = await _setup(db, panel_groups=[2, 5, 9])
     msg = FakeMessage(user_id=1)
     await admin.cmd_reorder(
-        msg, cmd(f"{ch.tg_channel_id} {panel.id}:9,{panel.id}:2,{panel.id}:5"),
-        db=db, settings=SETTINGS,
+        msg,
+        cmd(f"{ch.tg_channel_id} {panel.id}:9,{panel.id}:2,{panel.id}:5"),
+        db=db,
+        settings=SETTINGS,
     )
     offers = await store.list_channel_offer_groups(db, ch.id)
     assert [o.group_id for o in offers] == [9, 2, 5]
@@ -196,7 +211,11 @@ async def test_setmaxage_invalid(db):
 async def test_removepanel_soft_deletes(db):
     await store.upsert_user(db, tg_user_id=1, role="superadmin")
     panel = await store.create_panel(
-        db, name="X", base_url="https://x", admin_username="a", admin_password="b",
+        db,
+        name="X",
+        base_url="https://x",
+        admin_username="a",
+        admin_password="b",
     )
     msg = FakeMessage(user_id=1)
     await admin.cmd_removepanel(msg, cmd(str(panel.id)), db=db)
@@ -236,7 +255,9 @@ async def test_promonow_publishes(db):
     panel, ch = await _setup(db)
     bot = FakeBotSimple()
     msg = FakeMessage(user_id=1)
-    await admin.cmd_promonow(msg, bot=bot, command=cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS)
+    await admin.cmd_promonow(
+        msg, bot=bot, command=cmd(str(ch.tg_channel_id)), db=db, settings=SETTINGS
+    )
     assert len(bot.sent) == 1
     assert "✅" in msg.texts[0]
 

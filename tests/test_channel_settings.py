@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from storage.db import Channel, Panel
 from services.channel_settings import ChannelSettings
+from storage.db import Channel, Panel
 
 
 def _panel(**overrides):
     base = dict(
-        id=1, name="NL", base_url="https://nl.test",
-        admin_username="admin", admin_password="pw",
-        verify_ssl=True, timeout_seconds=15.0,
-        protocols="vless,trojan", auto_delete_days=11, active=True,
+        id=1,
+        name="NL",
+        base_url="https://nl.test",
+        admin_username="admin",
+        admin_password="pw",
+        verify_ssl=True,
+        timeout_seconds=15.0,
+        protocols="vless,trojan",
+        auto_delete_days=11,
+        active=True,
     )
     base.update(overrides)
     return Panel(**base)
@@ -19,11 +25,18 @@ def _panel(**overrides):
 
 def _channel(**overrides):
     base = dict(
-        id=1, tg_channel_id=-100123, title="Test",
-        trial_data_limit_gb=10.0, trial_days=7,
-        on_hold_grace_days=14, allow_regrant_after_days=60,
-        trial_max_member_age_days=3.0, join_approval_delay_seconds=30,
-        promo_interval_hours=12.0, promo_pin=False, promo_silent=False,
+        id=1,
+        tg_channel_id=-100123,
+        title="Test",
+        trial_data_limit_gb=10.0,
+        trial_days=7,
+        on_hold_grace_days=14,
+        allow_regrant_after_days=60,
+        trial_max_member_age_days=3.0,
+        join_approval_delay_seconds=30,
+        promo_interval_hours=12.0,
+        promo_pin=False,
+        promo_silent=False,
         active=True,
     )
     base.update(overrides)
