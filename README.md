@@ -227,9 +227,29 @@ User sends join request:
 ## Development
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-python -m bot.main            # run
-pytest -q                     # 285 tests
+scripts/devenv.sh setup       # one-time: create .venv + install all deps
+scripts/devenv.sh check       # verify everything is green (lint, format, tests, coverage)
+python -m bot.main            # run the bot
+```
+
+`devenv.sh check` runs in any fresh session and fails loudly if anything is
+red: python ≥ 3.11, `.venv`, dependencies, `pip check`, `.env` (warn-only),
+`ruff check`, `ruff format --check`, and `pytest` with a **coverage gate
+(≥ 80%)** — the suite fails if coverage drops below the threshold configured
+in `pyproject.toml`.
+
+Individual commands:
+
+```bash
+scripts/devenv.sh test        # pytest with coverage summary
+scripts/devenv.sh lint        # ruff check + format check
+pytest -q                     # 389 tests, ~85% coverage
 ruff check .                  # lint
 ```
+
+CI: a ready-made workflow lives at `docs/github-ci.yml` — copy it to
+`.github/workflows/ci.yml` (push with a `workflows`-scoped token) to run lint,
+format and tests on every push.
+
+Project docs: [CHANGELOG.md](CHANGELOG.md) for history,
+[SESSION_HANDOFF.md](SESSION_HANDOFF.md) for session-to-session context.
