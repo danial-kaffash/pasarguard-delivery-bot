@@ -127,10 +127,8 @@ scripts/devenv.sh check
 
 ## Known limitations / open loops
 
-- **CI is not enabled.** The workflow lives at `docs/github-ci.yml` (test step
-  documents the coverage gate) but `.github/workflows/` could not be pushed
-  by the sandbox token (needs `workflows` scope). Enable by creating
-  `.github/workflows/ci.yml` in the GitHub web UI and pasting the template.
+- **CI is intentionally not used** (operator decision). The gate
+  (`scripts/devenv.sh check`) runs locally before every commit instead.
 - **Coverage gaps** (biggest remaining): `bot/handlers/panel.py` FSM wizard
   inputs, `bot/handlers/admin.py` error branches (~75%), `bot/smoke.py` (0% —
   diagnostic script; counted honestly, not excluded).
@@ -181,7 +179,7 @@ a floor, not a ceiling — new code lands with tests.
 |---|---|
 | Tests | **389 passed**, coverage **~85%** (gate: 80%) |
 | Lint | `ruff check .` + `ruff format --check .` — green |
-| CI | Template at `docs/github-ci.yml`; **not yet enabled** |
+| CI | Intentionally not used — local gate before every commit |
 | Deployment | Docker / docker-compose (bot only, SQLite on a volume) |
 | Last release | `0.1.0` (see `CHANGELOG.md`) |
 
@@ -208,5 +206,4 @@ panel/                 PasarGuard API client + multi-panel manager
 storage/db.py          SQLite schema + all CRUD
 scripts/devenv.sh      the gate (check/setup/update/lint/test)
 scripts/git-safety.sh  git policy (install/check)
-docs/github-ci.yml     CI template (copy to .github/workflows/ to enable)
 ```

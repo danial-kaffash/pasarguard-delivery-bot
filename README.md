@@ -248,9 +248,8 @@ pytest -q                     # 389 tests, ~85% coverage
 ruff check .                  # lint
 ```
 
-CI: a ready-made workflow lives at `docs/github-ci.yml` — copy it to
-`.github/workflows/ci.yml` (push with a `workflows`-scoped token) to run lint,
-format and tests on every push.
+CI is intentionally not used — run `scripts/devenv.sh check` locally before
+every commit; it enforces the same gate (lint, format, tests, coverage).
 
 Project docs: [CHANGELOG.md](CHANGELOG.md) for history,
 [SESSION_HANDOFF.md](SESSION_HANDOFF.md) for session-to-session context.

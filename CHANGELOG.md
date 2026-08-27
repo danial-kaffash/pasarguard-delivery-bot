@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- CI workflow template (`docs/github-ci.yml`) — CI is intentionally not used.
+  The local gate (`scripts/devenv.sh check`) runs before every commit and
+  enforces the same checks (lint, format, tests, coverage).
+
 ### Added
 
 - `scripts/devenv.sh` — development-environment helper with a `check` subcommand
